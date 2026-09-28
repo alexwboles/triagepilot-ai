@@ -49,7 +49,7 @@
       return (order[a.category] - order[b.category]) || a.id.localeCompare(b.id);
     });
     var html = sorted.map(function (e) {
-      return '<div class="email' + (e.id === state.selectedId ? ' sel' : '') + '" data-id="' + e.id + '">' +
+      return '<div class="email' + (e.id === state.selectedId ? ' sel' : '') + '" data-id="' + e.id + '" data-cat="' + e.category + '">' +
         '<div class="email-top"><span class="pill ' + badgeClass(e.category) + '">' + escapeHtml(e.label) + '</span>' +
         '<span class="conf">' + escapeHtml(e.confidence) + '</span></div>' +
         '<div class="email-subj">' + escapeHtml(e.subject) + '</div>' +
@@ -66,23 +66,27 @@
     renderList();
     var e = state.emails.filter(function (x) { return x.id === id; })[0];
     if (!e) return;
+    var meterPct = { high: 95, medium: 65, low: 30 }[e.confidence] || 30;
     $('detail').innerHTML =
       '<h3>' + escapeHtml(e.subject) + '</h3>' +
-      '<div class="meta">From: ' + escapeHtml(e.from) + ' &nbsp;·&nbsp; ' +
-      '<span class="pill ' + badgeClass(e.category) + '">' + escapeHtml(e.label) + '</span> ' +
+      '<div class="meta">From: ' + escapeHtml(e.from) + '</div>' +
+      '<div class="classif">' +
+      '<div class="classif-row"><span class="pill ' + badgeClass(e.category) + '">' + escapeHtml(e.label) + '</span>' +
       '<span class="conf">' + escapeHtml(e.confidence) + ' confidence</span></div>' +
-      '<p class="reason">💡 ' + escapeHtml(e.reason) + '</p>' +
+      '<div class="meter"><i style="width:' + meterPct + '%"></i></div>' +
+      '<p class="reason"><strong>Why:</strong> ' + escapeHtml(e.reason) + '</p>' +
+      '</div>' +
       '<p class="body">' + escapeHtml(e.body) + '</p>' +
       '<div class="draft-actions">' +
       '<label>Tone: <select id="tone">' +
       '<option value="professional"' + (state.tone === 'professional' ? ' selected' : '') + '>Professional</option>' +
       '<option value="friendly"' + (state.tone === 'friendly' ? ' selected' : '') + '>Friendly</option>' +
       '</select></label> ' +
-      '<button id="draftBtn">✍️ Draft reply</button>' +
-      '<button id="mailtoBtn">📧 Open in email app</button>' +
+      '<button id="draftBtn" class="action hot">Draft reply</button>' +
+      '<button id="mailtoBtn" class="action">Open in email app</button>' +
       '</div>' +
       '<textarea id="draft" rows="10" placeholder="Your draft will appear here — edit it freely."></textarea>' +
-      '<button id="copyBtn">📋 Copy draft</button> <span id="copied"></span>';
+      '<button id="copyBtn" class="action">Copy draft</button> <span id="copied"></span>';
     $('tone').addEventListener('change', function (ev) { state.tone = ev.target.value; });
     $('draftBtn').addEventListener('click', function () {
       $('draft').value = TriagePilot.draftReply(e, state.tone, state.business);

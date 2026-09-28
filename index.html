@@ -7,44 +7,44 @@
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-<header>
-  <div class="brand"><strong>TriagePilot</strong> <span class="tag">AI</span></div>
-  <div class="sub">Urgent first. Drafts written. Noise filtered.</div>
+
+<header class="command">
+  <div class="command-inner">
+    <div class="brand"><span class="brand-mark">◈</span><div><strong>TriagePilot</strong> <span class="tag">AI</span><span class="brand-sub">inbox dispatch console</span></div></div>
+    <div class="command-right">
+      <label class="biz">Business <input id="bizName" placeholder="Your Business" size="16"></label>
+      <button id="loadSamples" class="btn-ghost">Load sample inbox</button>
+    </div>
+  </div>
+  <div class="signalbar">
+    <div class="signalbar-inner">
+      <span class="sig-label">Live triage</span>
+      <div id="digest" class="digest"><span class="muted">No emails yet.</span></div>
+    </div>
+  </div>
 </header>
 
-<main>
-  <section id="digestbar">
-    <div id="digest">No emails yet.</div>
-    <div class="top-actions">
-      <button id="loadSamples">Load sample inbox</button>
-      <label class="biz">Business: <input id="bizName" placeholder="Your Business" size="18"></label>
-    </div>
+<main class="board">
+  <section class="pane queue-pane" aria-label="Inbox queue">
+    <div class="pane-head"><p class="kicker">Queue</p><h2>Inbox</h2><p class="pane-sub">Urgent first, noise last.</p></div>
+    <div id="inbox"></div>
   </section>
 
-  <section class="columns">
-    <div class="col list-col">
-      <h2>Inbox</h2>
-      <div id="inbox"></div>
-    </div>
-    <div class="col detail-col">
-      <h2>Details &amp; reply</h2>
-      <div id="detail"><p class="empty">Select an email to see details and draft a reply.</p></div>
-    </div>
+  <section class="pane dossier-pane" aria-label="Email dossier">
+    <div class="pane-head"><p class="kicker">Dossier</p><h2>Details &amp; reply</h2><p class="pane-sub">Classification, reason, draft desk.</p></div>
+    <div id="detail"><p class="empty">Select an email from the queue to open its dossier and draft a reply.</p></div>
   </section>
 
-  <section class="paste">
-    <h2>Paste an email</h2>
+  <aside class="pane intake-pane" aria-label="New intercept">
+    <div class="pane-head"><p class="kicker">Intake</p><h2>Paste an email</h2><p class="pane-sub">Triage anything, instantly.</p></div>
     <div class="form">
-      <input id="fFrom" placeholder="From (e.g. Jane Doe <jane@example.com>)">
-      <input id="fSubject" placeholder="Subject">
-      <textarea id="fBody" rows="4" placeholder="Email body — paste it here"></textarea>
-      <button id="addBtn">Triage this email</button>
+      <label>From<input id="fFrom" placeholder="Jane Doe &lt;jane@example.com&gt;"></label>
+      <label>Subject<input id="fSubject" placeholder="Subject"></label>
+      <label>Body<textarea id="fBody" rows="5" placeholder="Email body — paste it here"></textarea></label>
+      <button id="addBtn" class="primary">Triage this email</button>
     </div>
-  </section>
-
-  <footer>
-    <p><strong>Privacy:</strong> TriagePilot runs 100% in your browser. Emails never leave this page — no servers, no tracking, no accounts.</p>
-  </footer>
+    <p class="privacy"><strong>Private by design.</strong> TriagePilot runs 100% in your browser. Emails never leave this page — no servers, no tracking, no accounts.</p>
+  </aside>
 </main>
 
 <script src="js/classifier.js"></script>
