@@ -1,48 +1,160 @@
+/* TriagePilot AI — premium light theme */
 :root {
-  --bg: #f6f7f9; --card: #ffffff; --ink: #1f2937; --muted: #6b7280;
-  --accent: #2563eb; --border: #e5e7eb; --radius: 10px;
+  --bg: #f8f9fb;
+  --card: #ffffff;
+  --ink: #101828;
+  --muted: #667085;
+  --border: #e5e8ec;
+  --border-strong: #d0d5dd;
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-ring: rgba(79, 70, 229, 0.15);
+  --accent-soft: rgba(79, 70, 229, 0.07);
+  --divider: #eef0f3;
+  --ok: #15803d;
+  --ok-soft: rgba(21, 128, 61, 0.08);
+  --radius: 12px;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
 }
 * { box-sizing: border-box; }
-body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  background: var(--bg); color: var(--ink); }
-header { background: #111827; color: #fff; padding: 18px 24px; }
-header .brand { font-size: 1.4rem; }
-header .tag { background: var(--accent); border-radius: 6px; padding: 1px 8px; font-size: .8rem; }
-header .sub { color: #9ca3af; margin-top: 4px; }
-main { max-width: 1100px; margin: 0 auto; padding: 20px; }
-#digestbar { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 14px 16px; margin-bottom: 16px; display: flex; flex-wrap: wrap;
-  justify-content: space-between; align-items: center; gap: 10px; }
-.pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .78rem; font-weight: 600; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- header ---------- */
+header {
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  padding: 18px 24px 14px;
+}
+header .brand { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; color: var(--ink); }
+header .tag {
+  background: var(--accent-soft); color: var(--accent);
+  border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 700;
+  letter-spacing: 0.4px; vertical-align: middle;
+}
+header .sub { color: var(--muted); font-size: 14px; margin-top: 4px; }
+
+/* ---------- layout ---------- */
+main { max-width: 1120px; margin: 0 auto; padding: 20px 20px 48px; }
+
+/* ---------- digest bar ---------- */
+#digestbar {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px 18px; margin-bottom: 16px;
+  display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px;
+}
+#digest { font-size: 15px; }
+.top-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+/* ---------- pills (status semantics) ---------- */
+.pill { display: inline-block; padding: 3px 11px; border-radius: 999px; font-size: 12px; font-weight: 600; }
 .b-urgent { background: #fee2e2; color: #991b1b; }
 .b-reply  { background: #dbeafe; color: #1e40af; }
-.b-fyi    { background: #e5e7eb; color: #374151; }
+.b-fyi    { background: #eef0f3; color: #475467; }
 .b-spam   { background: #fef3c7; color: #92400e; }
-.conf { color: var(--muted); font-size: .75rem; margin-left: 6px; }
-button { background: var(--accent); color: #fff; border: 0; border-radius: 8px;
-  padding: 8px 14px; cursor: pointer; font-size: .9rem; }
-button:hover { background: #1d4ed8; }
+.conf { color: var(--muted); font-size: 12px; margin-left: 6px; }
+
+/* ---------- buttons & inputs ---------- */
+button {
+  background: var(--accent); color: #fff;
+  border: 1px solid var(--accent); border-radius: 8px;
+  padding: 9px 16px; cursor: pointer;
+  font-size: 14px; font-weight: 600;
+  min-height: 40px;
+  font-family: inherit;
+}
+button:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.form input, .form textarea, .biz input, .draft-actions select {
+  font: inherit; color: var(--ink); background: #fff;
+  border: 1px solid var(--border-strong); border-radius: 8px;
+  padding: 9px 12px;
+  min-height: 40px;
+}
+.form input, .form textarea { width: 100%; margin-bottom: 10px; }
+.form input:focus, .form textarea:focus, .biz input:focus, .draft-actions select:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring);
+}
+input::placeholder, textarea::placeholder { color: #98a2b3; }
+
+/* ---------- columns ---------- */
 .columns { display: grid; grid-template-columns: 1fr 1.4fr; gap: 16px; }
-.col { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
-.col h2 { margin: 0 0 10px; font-size: 1.05rem; }
-.email { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 8px; cursor: pointer; }
-.email:hover { border-color: var(--accent); }
-.email.sel { border-color: var(--accent); box-shadow: 0 0 0 2px #bfdbfe; }
-.email-top { display: flex; align-items: center; margin-bottom: 4px; }
-.email-subj { font-weight: 600; }
-.email-from { color: var(--muted); font-size: .82rem; }
-.empty { color: var(--muted); }
-.meta { color: var(--muted); font-size: .85rem; margin: 6px 0; }
-.reason { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 8px 10px; font-size: .88rem; }
-.body { white-space: pre-wrap; background: #f9fafb; border: 1px solid var(--border);
-  border-radius: 8px; padding: 10px; font-size: .9rem; }
-.draft-actions { margin: 12px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-#draft { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-family: inherit; }
-#copied { color: #15803d; font-size: .85rem; margin-left: 6px; }
-.paste { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 14px; margin-top: 16px; }
-.form input, .form textarea { width: 100%; margin-bottom: 8px; padding: 8px;
-  border: 1px solid var(--border); border-radius: 8px; font-family: inherit; }
-footer { margin-top: 20px; color: var(--muted); font-size: .85rem; text-align: center; }
-.biz input { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; }
-@media (max-width: 800px) { .columns { grid-template-columns: 1fr; } }
+.col {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+.col h2 { margin: 0 0 12px; font-size: 19px; font-weight: 600; letter-spacing: -0.2px; }
+
+/* ---------- inbox list ---------- */
+.email {
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 14px; margin-bottom: 10px; cursor: pointer;
+  background: #fff;
+  transition: border-color 0.15s ease;
+}
+.email:hover { border-color: var(--border-strong); }
+.email.sel { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.email-top { display: flex; align-items: center; margin-bottom: 4px; flex-wrap: wrap; }
+.email-subj { font-weight: 600; font-size: 15px; }
+.email-from { color: var(--muted); font-size: 13px; }
+.empty { color: var(--muted); font-size: 14px; margin: 0; }
+
+/* ---------- detail ---------- */
+#detail h3 { margin: 0 0 8px; font-size: 18px; font-weight: 600; letter-spacing: -0.2px; }
+.meta { color: var(--muted); font-size: 13px; margin: 8px 0; }
+.reason {
+  background: var(--accent-soft);
+  border: 1px solid rgba(79, 70, 229, 0.18);
+  border-radius: 10px;
+  padding: 10px 12px; font-size: 14px;
+}
+.body {
+  white-space: pre-wrap;
+  background: #fafbfc; border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px; font-size: 14px;
+}
+.draft-actions { margin: 14px 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.draft-actions label { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+#draft {
+  width: 100%; border: 1px solid var(--border-strong); border-radius: 10px;
+  padding: 12px; font-family: inherit; font-size: 14px; color: var(--ink);
+}
+#draft:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+#copied { color: var(--ok); font-size: 13px; font-weight: 600; margin-left: 6px; }
+
+/* ---------- paste section ---------- */
+.paste {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px; margin-top: 16px;
+}
+.paste h2 { margin: 0 0 12px; font-size: 19px; font-weight: 600; letter-spacing: -0.2px; }
+.form { display: flex; flex-direction: column; }
+
+/* ---------- footer ---------- */
+footer { margin-top: 24px; color: var(--muted); font-size: 13px; text-align: center; }
+footer p { margin: 0; }
+
+/* ---------- responsive ---------- */
+@media (max-width: 800px) {
+  .columns { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  main { padding: 16px 14px 40px; }
+  header { padding: 14px 16px 12px; }
+  .col, .paste { padding: 16px; }
+  #digestbar { padding: 14px 16px; }
+  .top-actions { width: 100%; }
+  .top-actions button { flex: 1; }
+  .draft-actions button { min-height: 44px; }
+}
