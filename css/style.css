@@ -22,7 +22,7 @@
   --gray-soft: #eceee9;
   --command: #182220;
   --command-2: #101715;
-  --radius: 14px;
+  --radius: 0;
   --shadow: 0 1px 2px rgba(28, 36, 34, .06), 0 14px 34px rgba(28, 36, 34, .08);
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -45,14 +45,14 @@ h2 { font-size: 20px; letter-spacing: -.4px; margin: 0; font-weight: 750; }
 }
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand-mark {
-  width: 38px; height: 38px; border-radius: 11px; background: var(--vermilion); color: #fff;
+  width: 38px; height: 38px; border-radius: 0; background: var(--vermilion); color: #fff;
   display: inline-flex; align-items: center; justify-content: center; font-size: 19px; flex: none;
   box-shadow: 0 4px 14px rgba(207, 61, 40, .4);
 }
 .brand strong { font-size: 19px; letter-spacing: -.3px; }
 .tag {
   font-size: 11px; font-weight: 700; letter-spacing: 1.4px; color: #ffd9cf;
-  border: 1px solid rgba(255, 255, 255, .25); border-radius: 6px; padding: 2px 7px; margin-left: 6px;
+  border: 1px solid rgba(255, 255, 255, .25); border-radius: 0; padding: 2px 7px; margin-left: 6px;
   vertical-align: 2px;
 }
 .brand-sub { display: block; font-size: 12px; color: #9db3ad; letter-spacing: .4px; margin-top: 1px; }
@@ -60,14 +60,14 @@ h2 { font-size: 20px; letter-spacing: -.4px; margin: 0; font-weight: 750; }
 .biz { font-size: 13px; color: #9db3ad; display: flex; align-items: center; gap: 8px; }
 .biz input {
   background: rgba(255, 255, 255, .07); border: 1px solid rgba(255, 255, 255, .16);
-  color: #fff; border-radius: 9px; padding: 8px 12px; font-size: 13.5px; font-family: var(--sans);
+  color: #fff; border-radius: 0; padding: 8px 12px; font-size: 13.5px; font-family: var(--sans);
   width: 170px;
 }
 .biz input::placeholder { color: #6f857f; }
 .biz input:focus { outline: none; border-color: var(--vermilion); box-shadow: 0 0 0 3px rgba(207, 61, 40, .25); }
 .btn-ghost {
   background: transparent; border: 1px solid rgba(255, 255, 255, .22); color: #fff;
-  border-radius: 9px; padding: 9px 16px; font-size: 13.5px; font-weight: 600;
+  border-radius: 0; padding: 9px 16px; font-size: 13.5px; font-weight: 600;
   transition: border-color .15s, background .15s;
 }
 .btn-ghost:hover { border-color: var(--vermilion); background: rgba(207, 61, 40, .15); }
@@ -89,7 +89,7 @@ h2 { font-size: 20px; letter-spacing: -.4px; margin: 0; font-weight: 750; }
 /* category pills — the signal lights */
 .pill {
   display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700;
-  letter-spacing: .4px; border-radius: 999px; padding: 3px 11px 3px 8px; white-space: nowrap;
+  letter-spacing: .4px; border-radius: 0; padding: 3px 11px 3px 8px; white-space: nowrap;
 }
 .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .b-urgent { background: var(--vermilion-soft); color: var(--vermilion-deep); }
@@ -121,7 +121,7 @@ h2 { font-size: 20px; letter-spacing: -.4px; margin: 0; font-weight: 750; }
 /* queue */
 #inbox { display: flex; flex-direction: column; gap: 10px; max-height: 640px; overflow-y: auto; padding-right: 4px; }
 .email {
-  border: 1px solid var(--line); border-left: 4px solid var(--gray); border-radius: 11px;
+  border: 1px solid var(--line); border-left: 4px solid var(--gray); border-radius: 0;
   padding: 12px 14px; cursor: pointer; background: #fff; position: relative;
   transition: border-color .15s, transform .15s, box-shadow .15s;
 }
@@ -140,27 +140,27 @@ h2 { font-size: 20px; letter-spacing: -.4px; margin: 0; font-weight: 750; }
 .dossier-pane #detail h3 { margin: 0 0 8px; font-size: 19px; letter-spacing: -.3px; }
 .meta { font-size: 13px; color: var(--ink-soft); margin-bottom: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .classif {
-  border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;
+  border: 1px solid var(--line); border-radius: 0; padding: 14px 16px; margin-bottom: 16px;
   background: #fbf7ec;
 }
 .classif-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
-.meter { height: 8px; background: #e7ddc2; border-radius: 999px; overflow: hidden; }
-.meter i { display: block; height: 100%; background: var(--vermilion); border-radius: 999px; transition: width .5s ease; }
+.meter { height: 8px; background: #e7ddc2; border-radius: 0; overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--vermilion); border-radius: 0; transition: width .5s ease; }
 .reason { font-size: 13.5px; color: var(--ink-soft); margin: 10px 0 0; }
 .reason strong { color: var(--ink); }
 .body {
   font-size: 14px; color: var(--ink-soft); background: #fff; border: 1px solid var(--line-soft);
-  border-radius: 12px; padding: 14px 16px; margin: 0 0 18px; max-height: 220px; overflow-y: auto;
+  border-radius: 0; padding: 14px 16px; margin: 0 0 18px; max-height: 220px; overflow-y: auto;
   white-space: pre-wrap;
 }
 .draft-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .draft-actions label { font-size: 13px; color: var(--ink-soft); display: flex; align-items: center; gap: 8px; }
 select#tone, .intake-pane select {
-  font-family: var(--sans); font-size: 13.5px; border: 1px solid var(--line); border-radius: 9px;
+  font-family: var(--sans); font-size: 13.5px; border: 1px solid var(--line); border-radius: 0;
   padding: 8px 10px; background: #fff; color: var(--ink);
 }
 button.action {
-  border: 1px solid var(--line); background: #fff; border-radius: 9px; padding: 9px 15px;
+  border: 1px solid var(--line); background: #fff; border-radius: 0; padding: 9px 15px;
   font-size: 13.5px; font-weight: 600; color: var(--ink); box-shadow: var(--shadow);
   transition: border-color .15s, transform .12s;
 }
@@ -169,7 +169,7 @@ button.action.hot { background: var(--vermilion); border-color: var(--vermilion)
 button.action.hot:hover { background: var(--vermilion-deep); color: #fff; }
 textarea#draft {
   width: 100%; font-family: var(--sans); font-size: 14px; color: var(--ink);
-  border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px;
+  border: 1px solid var(--line); border-radius: 0; padding: 14px 16px; margin-bottom: 10px;
   background: #fff; resize: vertical; min-height: 150px; line-height: 1.6;
 }
 textarea#draft:focus { outline: none; border-color: var(--vermilion); box-shadow: 0 0 0 3px rgba(207, 61, 40, .12); }
@@ -180,14 +180,14 @@ textarea#draft:focus { outline: none; border-color: var(--vermilion); box-shadow
 .intake-pane label { display: block; font-size: 13px; font-weight: 650; color: var(--ink-soft); }
 .intake-pane input, .intake-pane textarea {
   width: 100%; margin-top: 6px; font-family: var(--sans); font-size: 14px; color: var(--ink);
-  border: 1px solid var(--line); border-radius: 10px; padding: 10px 13px; background: #fff;
+  border: 1px solid var(--line); border-radius: 0; padding: 10px 13px; background: #fff;
 }
 .intake-pane input:focus, .intake-pane textarea:focus {
   outline: none; border-color: var(--vermilion); box-shadow: 0 0 0 3px rgba(207, 61, 40, .12);
 }
 .intake-pane textarea { resize: vertical; }
 .primary {
-  background: var(--vermilion); color: #fff; border: none; border-radius: 10px;
+  background: var(--vermilion); color: #fff; border: none; border-radius: 0;
   font-weight: 650; font-size: 14.5px; padding: 12px 20px;
   box-shadow: 0 4px 14px rgba(207, 61, 40, .3); transition: background .15s, transform .12s;
 }
