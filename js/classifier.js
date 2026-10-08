@@ -211,9 +211,50 @@
     return TEMPLATES[cat][t](ctx);
   }
 
+  /**
+   * Filter an inbox by free-text query and/or category.
+   * Pure — used by the UI and the Node tests.
+   */
+  function filterEmails(emails, query, category) {
+    var q = String(query || '').trim().toLowerCase();
+    return (emails || []).filter(function (e) {
+      if (category && e.category !== category) return false;
+      if (!q) return true;
+      return ((e.subject || '') + ' ' + (e.from || '') + ' ' + (e.body || ''))
+        .toLowerCase().indexOf(q) !== -1;
+    });
+  }
+
+  /** Cycle a label one step: urgent -> reply -> fyi -> spam -> urgent. */
+  function nextCategory(cat) {
+    var i = CATEGORIES.indexOf(cat);
+    return CATEGORIES[(i + 1) % CATEGORIES.length];
+  }
+
+  /** One-line plain-text digest of an inbox, for copying elsewhere. */
+  function digestText(emails) {
+    var counts = { urgent: 0, reply: 0, fyi: 0, spam: 0 };
+    (emails || []).forEach(function (e) {
+      if (counts[e.category] !== undefined) counts[e.category]++;
+    });
+    var total = (emails || []).length;
+    var lines = [total + ' emails triaged: ' + counts.urgent + ' urgent, ' +
+      counts.reply + ' need reply, ' + counts.fyi + ' FYI, ' + counts.spam + ' spam'];
+    (emails || []).forEach(function (e) {
+      if (e.category === 'urgent' || e.category === 'reply') {
+        lines.push('- [' + LABELS[e.category] + '] ' + (e.subject || '(no subject)') +
+          ' — ' + firstName(e.from));
+      }
+    });
+    return lines.join('\n');
+  }
+
   return {
     classify: classify,
     draftReply: draftReply,
+    filterEmails: filterEmails,
+    nextCategory: nextCategory,
+    digestText: digestText,
     CATEGORIES: CATEGORIES,
     LABELS: LABELS
   };

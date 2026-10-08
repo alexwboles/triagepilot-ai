@@ -76,5 +76,44 @@ flow('accuracy: >= 8/10 samples match expected labels', () => {
   assert.ok(correct >= 8, 'accuracy below 8/10');
 });
 
+// FLOW 8: inbox search finds the right emails, category filter isolates spam
+flow('search + category filter over the triaged inbox', () => {
+  const inbox = samples.map(e => ({ ...e, category: T.classify(e.subject, e.body).category }));
+  const flood = T.filterEmails(inbox, 'flood', '');
+  assert.ok(flood.length >= 1 && flood.every(e => (e.subject + e.body).toLowerCase().includes('flood')));
+  const spamOnly = T.filterEmails(inbox, '', 'spam');
+  assert.ok(spamOnly.length >= 2 && spamOnly.every(e => e.category === 'spam'));
+  const cleared = inbox.filter(e => e.category !== 'spam');
+  assert.strictEqual(cleared.length, inbox.length - spamOnly.length);
+  assert.ok(cleared.every(e => e.category !== 'spam'), 'clear-spam must remove all spam');
+  console.log('       flood hits=' + flood.length + ', spam=' + spamOnly.length);
+});
+
+// FLOW 9: manual label correction — cycle then re-derive the digest
+flow('wrong-label correction cycles the category and digest follows', () => {
+  const inbox = samples.map(e => ({ ...e, category: T.classify(e.subject, e.body).category }));
+  const target = inbox.find(e => e.category === 'fyi');
+  assert.ok(target, 'need an fyi email to correct');
+  target.category = T.nextCategory(target.category); // fyi -> spam
+  assert.strictEqual(target.category, 'spam');
+  target.label = T.LABELS[target.category];
+  const d = T.digestText(inbox);
+  const m = d.match(/^(\d+) emails triaged: (\d+) urgent, (\d+) need reply, (\d+) FYI, (\d+) spam$/m);
+  assert.ok(m, 'digest headline parseable');
+  assert.strictEqual(Number(m[1]), 10);
+  assert.strictEqual(Number(m[2]) + Number(m[3]) + Number(m[4]) + Number(m[5]), 10);
+});
+
+// FLOW 10: search is case-insensitive and matches from/subject/body
+flow('search matches sender, subject, and body text', () => {
+  const inbox = samples.map(e => ({ ...e, category: T.classify(e.subject, e.body).category }));
+  const byName = T.filterEmails(inbox, 'SARAH', '');
+  assert.ok(byName.length >= 1, 'sender name search');
+  const bySubject = T.filterEmails(inbox, 'quote', '');
+  assert.ok(bySubject.some(e => e.id === 'e3'), 'subject search finds quote request');
+  const none = T.filterEmails(inbox, 'qqqzzz-nope', '');
+  assert.strictEqual(none.length, 0);
+});
+
 console.log('\ne2e: ' + n + ' flows passed');
 EOF

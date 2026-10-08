@@ -80,6 +80,67 @@ else
   bad "confidence value out of range"
 fi
 
+# 17: new classifier API (filterEmails, nextCategory, digestText)
+if node -e "
+const T=require('./js/classifier.js');
+['filterEmails','nextCategory','digestText'].forEach(f=>{if(typeof T[f]!=='function')process.exit(1)});
+" 2>/dev/null; then
+  ok "classifier exports filterEmails + nextCategory + digestText"
+else
+  bad "classifier missing new API"
+fi
+
+# 18: filterEmails — query + category combos over the sample inbox
+if node -e "
+const T=require('./js/classifier.js');
+const s=require('./data/samples.json').map(e=>({id:e.id,from:e.from,subject:e.subject,body:e.body,category:T.classify(e.subject,e.body).category}));
+const q=T.filterEmails(s,'flood','');
+if(!q.length||!q.every(e=>(e.subject+e.body).toLowerCase().includes('flood')))process.exit(1);
+const spam=T.filterEmails(s,'','spam');
+if(spam.length<1||!spam.every(e=>e.category==='spam'))process.exit(1);
+const combo=T.filterEmails(s,'quote','reply');
+if(combo.length!==1||combo[0].id!=='e3')process.exit(1);
+if(T.filterEmails(s,'','').length!==10)process.exit(1);
+if(T.filterEmails(s,'zzz-no-match','').length!==0)process.exit(1);
+" 2>/dev/null; then
+  ok "filterEmails narrows by query, category, and both"
+else
+  bad "filterEmails broken"
+fi
+
+# 19: nextCategory cycles urgent->reply->fyi->spam->urgent
+if node -e "
+const T=require('./js/classifier.js');
+const seq=['urgent','reply','fyi','spam']; let c='urgent';
+for(const want of ['reply','fyi','spam','urgent']){ c=T.nextCategory(c); if(c!==want)process.exit(1); }
+if(T.nextCategory('bogus')!=='urgent')process.exit(1);
+" 2>/dev/null; then
+  ok "nextCategory cycles labels for manual correction"
+else
+  bad "nextCategory cycle broken"
+fi
+
+# 20: digestText summarizes counts + lists action items
+if node -e "
+const T=require('./js/classifier.js');
+const s=require('./data/samples.json').map(e=>({from:e.from,subject:e.subject,category:T.classify(e.subject,e.body).category}));
+const d=T.digestText(s);
+if(!/^10 emails triaged: \d+ urgent, \d+ need reply, \d+ FYI, \d+ spam\$/.test(d.split('\n')[0]))process.exit(1);
+if(!d.includes('[Urgent]'))process.exit(1);
+" 2>/dev/null; then
+  ok "digestText renders countable one-line summary"
+else
+  bad "digestText broken"
+fi
+
+# 21: UI wiring — search, clear-spam, persistence, correction hooks
+missing=""
+for id in searchBox clearSpam; do grep -q "id=\"$id\"" index.html || missing="$missing #$id"; done
+for n in saveState loadState filterCat nextCategory clearSpam searchBox digestText; do
+  grep -q "$n" js/app.js || missing="$missing $n"
+done
+if [ -z "$missing" ]; then ok "app.js wires search/filter/persistence/correction UI"; else bad "missing wiring:$missing"; fi
+
 echo ""
 echo "smoke: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
