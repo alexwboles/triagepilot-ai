@@ -70,6 +70,19 @@
         }
       });
     });
+    // Learned rules: user corrections teach the classifier local keywords.
+    CATEGORIES.forEach(function (cat) {
+      var words = learnedRules[cat] || [];
+      if (!words.length) return;
+      var hits = [];
+      words.forEach(function (w) {
+        if (text.indexOf(w) !== -1 && hits.indexOf(w) === -1) hits.push(w);
+      });
+      if (hits.length) {
+        score[cat] += Math.min(4, hits.length * 2);
+        reasons[cat].push('learned from your corrections ("' + hits.slice(0, 3).join('", "') + '")');
+      }
+    });
     return { score: score, reasons: reasons };
   }
 
@@ -231,6 +244,66 @@
     return CATEGORIES[(i + 1) % CATEGORIES.length];
   }
 
+  // ---------------------------------------------------------------------------
+  // Learned rules: manual corrections teach the classifier owner-specific
+  // keywords. Kept in memory here; the UI persists them in localStorage.
+  // ---------------------------------------------------------------------------
+  var learnedRules = { urgent: [], reply: [], fyi: [], spam: [] };
+
+  var LEARN_STOP = ('the and for are with you your this that have has was were from ' +
+    'they them then than there their what when where which would could should ' +
+    'email mail hello thanks thank please just about into over under more most ' +
+    'will can our out any all one two new get got need needs want wants like ' +
+    'also after before very much many some such only own same other than too')
+    .split(' ');
+
+  function setLearnedRules(rules) {
+    CATEGORIES.forEach(function (cat) {
+      var list = rules && rules[cat];
+      learnedRules[cat] = Array.isArray(list)
+        ? list.filter(function (w) { return typeof w === 'string' && /^[a-z]{5,}$/.test(w); }).slice(0, 60)
+        : [];
+    });
+  }
+
+  function getLearnedRules() {
+    var copy = {};
+    CATEGORIES.forEach(function (cat) { copy[cat] = learnedRules[cat].slice(); });
+    return copy;
+  }
+
+  function resetLearnedRules() { setLearnedRules(null); }
+
+  function tokenizeWords(text) {
+    var m = String(text || '').toLowerCase().match(/[a-z]{5,}/g) || [];
+    var seen = {};
+    return m.filter(function (w) { return seen[w] ? false : (seen[w] = true); });
+  }
+
+  /**
+   * Learn from a manual correction: harvest distinctive words from the email
+   * that do NOT already trigger a built-in rule for the corrected category,
+   * and remember them as keywords for that category. Returns the new words.
+   */
+  function learnCorrection(category, subject, body) {
+    if (CATEGORIES.indexOf(category) === -1) return [];
+    var words = tokenizeWords((subject || '') + ' ' + (body || ''));
+    var existing = RULES[category];
+    var fresh = words.filter(function (w) {
+      if (LEARN_STOP.indexOf(w) !== -1) return false;
+      if (learnedRules[category].indexOf(w) !== -1) return false;
+      // skip words that already fire a built-in rule for this category
+      for (var i = 0; i < existing.length; i++) {
+        if (existing[i].re.test(w)) return false;
+      }
+      return true;
+    }).slice(0, 8);
+    fresh.forEach(function (w) {
+      if (learnedRules[category].length < 60) learnedRules[category].push(w);
+    });
+    return fresh;
+  }
+
   /** One-line plain-text digest of an inbox, for copying elsewhere. */
   function digestText(emails) {
     var counts = { urgent: 0, reply: 0, fyi: 0, spam: 0 };
@@ -255,6 +328,10 @@
     filterEmails: filterEmails,
     nextCategory: nextCategory,
     digestText: digestText,
+    learnCorrection: learnCorrection,
+    setLearnedRules: setLearnedRules,
+    getLearnedRules: getLearnedRules,
+    resetLearnedRules: resetLearnedRules,
     CATEGORIES: CATEGORIES,
     LABELS: LABELS
   };

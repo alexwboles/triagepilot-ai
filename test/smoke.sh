@@ -141,6 +141,44 @@ for n in saveState loadState filterCat nextCategory clearSpam searchBox digestTe
 done
 if [ -z "$missing" ]; then ok "app.js wires search/filter/persistence/correction UI"; else bad "missing wiring:$missing"; fi
 
+# 22: classifier exports the learning API
+if node -e "
+const T=require('./js/classifier.js');
+['learnCorrection','setLearnedRules','getLearnedRules','resetLearnedRules'].forEach(f=>{if(typeof T[f]!=='function')process.exit(1)});
+" 2>/dev/null; then
+  ok "classifier exports learnCorrection + set/get/resetLearnedRules"
+else
+  bad "classifier missing learning API"
+fi
+
+# 23: learnCorrection teaches a distinctive word, then classify uses it
+if node -e "
+const T=require('./js/classifier.js');
+T.resetLearnedRules();
+const before=T.classify('Zylophone status','How is the zylophone holding up?').category;
+if(before==='urgent') process.exit(1); // must not be urgent yet
+const fresh=T.learnCorrection('urgent','Zylophone calibration overdue','The zylophone calibration is overdue, please advise.');
+if(!fresh.includes('zylophone')) process.exit(1);
+const after=T.classify('Zylophone status','How is the zylophone holding up?');
+if(after.category!=='urgent') process.exit(1);
+if(!/learned/i.test(after.reason)) process.exit(1);
+T.resetLearnedRules();
+if(T.getLearnedRules().urgent.length!==0) process.exit(1);
+" 2>/dev/null; then
+  ok "learnCorrection teaches keywords and classify honors them"
+else
+  bad "classifier learning broken"
+fi
+
+# 24: UI wiring — handled state, aging, keyboard shortcuts, learned-rule note
+missing=""
+for id in hideHandled keyHelp learnNote; do grep -q "id=\"$id\"" index.html || missing="$missing #$id"; done
+for n in toggleHandled agingEmail initShortcuts renderLearnNote handledBtn moveSelection; do
+  grep -q "$n" js/app.js || missing="$missing $n"
+done
+grep -q '\.aging' css/style.css || missing="$missing css:.aging"
+if [ -z "$missing" ]; then ok "app.js wires handled/aging/shortcuts/learning UI"; else bad "missing wiring:$missing"; fi
+
 echo ""
 echo "smoke: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

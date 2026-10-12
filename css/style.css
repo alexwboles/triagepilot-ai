@@ -237,3 +237,31 @@ textarea#draft:focus { outline: none; border-color: var(--vermilion); box-shadow
   .command-inner { padding: 16px 18px; }
   .signalbar-inner { padding: 10px 18px; }
 }
+
+/* ---------- handled state + aging (feature batch) ---------- */
+.email.done { opacity: .55; }
+.email.done .email-subj { text-decoration: line-through; }
+.aging {
+  display: inline-block; background: #b34100; color: #fff;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase;
+  padding: 2px 7px; margin-left: 6px; border-radius: 0;
+}
+.done-tag {
+  display: inline-block; background: #3d6b35; color: #fff;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase;
+  padding: 2px 7px; margin-left: 6px; border-radius: 0;
+}
+.open-only { font-size: 12.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.kbd {
+  display: inline-block; border: 1px solid var(--line); border-bottom-width: 2px;
+  background: #fff; color: var(--ink-soft); font-size: 11px; font-family: var(--mono, monospace);
+  padding: 1px 6px; border-radius: 0; margin: 0 1px;
+}
+.learn-note { font-size: 12.5px; color: var(--muted); margin: 8px 0; min-height: 22px; }
+.keyhelp {
+  background: var(--card); border: 1px solid var(--line); padding: 12px 16px; margin: 0 0 12px;
+}
+.keyhelp h4 { margin: 0 0 8px; font-size: 13px; letter-spacing: .5px; text-transform: uppercase; }
+.keyhelp table { font-size: 13px; border-collapse: collapse; }
+.keyhelp td { padding: 3px 10px 3px 0; color: var(--ink-soft); }
+.hidden { display: none !important; }

@@ -115,5 +115,39 @@ flow('search matches sender, subject, and body text', () => {
   assert.strictEqual(none.length, 0);
 });
 
+// FLOW 11: manual correction teaches the classifier a distinctive keyword
+flow('learning: correcting to urgent teaches "zylophone" -> future emails urgent', () => {
+  T.resetLearnedRules();
+  const before = T.classify('Zylophone status', 'How is the zylophone holding up?');
+  assert.notStrictEqual(before.category, 'urgent', 'must not be urgent before learning');
+  const fresh = T.learnCorrection('urgent', 'Zylophone calibration overdue', 'The zylophone calibration is overdue, please advise.');
+  assert.ok(fresh.includes('zylophone'), 'should learn the distinctive word');
+  const after = T.classify('Zylophone status', 'How is the zylophone holding up?');
+  assert.strictEqual(after.category, 'urgent');
+  assert.ok(/learned/i.test(after.reason), 'reason should cite learning');
+  assert.ok(T.getLearnedRules().urgent.includes('zylophone'), 'persisted in learned rules');
+});
+
+// FLOW 12: learned rules are per-category and reset cleanly
+flow('learning: set/reset round-trips and does not leak across categories', () => {
+  T.resetLearnedRules();
+  T.setLearnedRules({ urgent: ['quimblex'], reply: [], fyi: [], spam: [] });
+  const r = T.classify('Quimblex?', 'The quimblex is making noise again.');
+  assert.strictEqual(r.category, 'urgent');
+  assert.strictEqual(T.getLearnedRules().reply.length, 0, 'no cross-category leak');
+  T.resetLearnedRules();
+  assert.deepStrictEqual(T.getLearnedRules().urgent, [], 'reset clears');
+  const plain = T.classify('Quimblex?', 'The quimblex is making noise again.');
+  assert.notStrictEqual(plain.category, 'urgent', 'no learned residue after reset');
+});
+
+// FLOW 13: stopwords are never learned
+flow('learning: stopwords ("the", "please") are never learned', () => {
+  T.resetLearnedRules();
+  const fresh = T.learnCorrection('spam', 'The please thank you', 'Please thank the team.');
+  assert.ok(!fresh.includes('the') && !fresh.includes('please'), 'stopwords skipped: ' + JSON.stringify(fresh));
+  T.resetLearnedRules();
+});
+
 console.log('\ne2e: ' + n + ' flows passed');
 EOF
