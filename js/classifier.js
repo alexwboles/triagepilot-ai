@@ -305,8 +305,7 @@
   }
 
   /** One-line plain-text digest of an inbox, for copying elsewhere. */
-  function digestText(emails) {
-    var counts = { urgent: 0, reply: 0, fyi: 0, spam: 0 };
+  function digestText(emails) {    var counts = { urgent: 0, reply: 0, fyi: 0, spam: 0 };
     (emails || []).forEach(function (e) {
       if (counts[e.category] !== undefined) counts[e.category]++;
     });
@@ -322,6 +321,155 @@
     return lines.join('\n');
   }
 
+  // ---------------------------------------------------------------------------
+  // Snooze: hide an email until a timestamp (pure helpers; the UI stores stamps)
+  // ---------------------------------------------------------------------------
+
+  /** True when the email was never snoozed or its snooze has passed. */
+  function isAwake(email, now) {
+    var t = Number((email && email.snoozedUntil) || 0);
+    return !t || t <= (now == null ? Date.now() : now);
+  }
+
+  /** Emails whose snooze has passed (or was never set). Pure. */
+  function visibleEmails(emails, now) {
+    return (emails || []).filter(function (e) { return isAwake(e, now); });
+  }
+
+  /** Remaining snooze as a short string ("25m", "3h", "2d"), or "" when awake. */
+  function snoozeRemaining(email, now) {
+    var ms = Number((email && email.snoozedUntil) || 0) - (now == null ? Date.now() : now);
+    if (ms <= 0) return '';
+    var m = Math.round(ms / 60000);
+    if (m < 60) return m + 'm';
+    var h = Math.round(m / 60);
+    if (h < 48) return h + 'h';
+    return Math.round(h / 24) + 'd';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sender lists: personal blocklist / trustlist keyed by address (or domain).
+  // Blocked senders always file as spam; trusted senders can never file as spam.
+  // ---------------------------------------------------------------------------
+  var senderLists = { blocked: [], trusted: [] };
+
+  /** Specific-to-general keys for a sender: full address first, then domain. */
+  function senderKeys(from) {
+    var m = /<([^>]+)>/.exec(String(from || ''));
+    var addr = (m ? m[1] : String(from || '').split(/\s+/).pop()).trim().toLowerCase();
+    var keys = [];
+    var at = addr.indexOf('@');
+    if (at !== -1) { keys.push(addr); keys.push(addr.slice(at + 1)); }
+    else if (addr) { keys.push(addr); }
+    return keys;
+  }
+
+  function setSenderLists(lists) {
+    ['blocked', 'trusted'].forEach(function (k) {
+      var l = lists && lists[k];
+      senderLists[k] = Array.isArray(l)
+        ? l.map(function (x) { return String(x).toLowerCase().trim(); }).filter(Boolean).slice(0, 200)
+        : [];
+    });
+  }
+
+  function getSenderLists() {
+    return { blocked: senderLists.blocked.slice(), trusted: senderLists.trusted.slice() };
+  }
+
+  function resetSenderLists() { setSenderLists(null); }
+
+  /** 'spam' | 'trust' | null for a sender string. Exact address wins over domain. */
+  function senderAction(from) {
+    var keys = senderKeys(from);
+    for (var i = 0; i < keys.length; i++) {
+      if (senderLists.blocked.indexOf(keys[i]) !== -1) return 'spam';
+    }
+    for (var j = 0; j < keys.length; j++) {
+      if (senderLists.trusted.indexOf(keys[j]) !== -1) return 'trust';
+    }
+    return null;
+  }
+
+  /** Add a sender's address (or domain) to one list; keeps the lists exclusive. */
+  function listSender(kind, from) {
+    var key = senderKeys(from)[0] || '';
+    if (!key) return null;
+    var other = kind === 'blocked' ? 'trusted' : 'blocked';
+    senderLists[other] = senderLists[other].filter(function (k) { return k !== key; });
+    if (senderLists[kind].indexOf(key) === -1) senderLists[kind].push(key);
+    return key;
+  }
+
+  /** Remove a sender from both lists. */
+  function unlistSender(from) {
+    var key = senderKeys(from)[0] || '';
+    ['blocked', 'trusted'].forEach(function (k) {
+      senderLists[k] = senderLists[k].filter(function (x) { return x !== key; });
+    });
+    return key;
+  }
+
+  /** Classify with sender lists honored. Blocked → spam; trusted can never be spam. */
+  function classifyWithSender(subject, body, from) {
+    var r = classify(subject, body);
+    var action = senderAction(from);
+    if (action === 'spam') {
+      return {
+        category: 'spam', label: LABELS.spam, confidence: 'high',
+        reason: 'Sender is on your blocklist — auto-filed as spam.', scores: r.scores
+      };
+    }
+    if (action === 'trust' && r.category === 'spam') {
+      r = {
+        category: 'reply', label: LABELS.reply, confidence: 'medium',
+        reason: 'Sender is on your trustlist — kept out of spam. ' + r.reason, scores: r.scores
+      };
+    }
+    return r;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bulk operations (pure; the UI applies them to state)
+  // ---------------------------------------------------------------------------
+
+  function idSet(ids) {
+    var set = {};
+    (ids || []).forEach(function (i) { set[i] = true; });
+    return set;
+  }
+
+  function bulkRemove(emails, ids) {
+    var set = idSet(ids);
+    return (emails || []).filter(function (e) { return !set[e.id]; });
+  }
+
+  function bulkSetHandled(emails, ids, handled) {
+    var set = idSet(ids);
+    return (emails || []).map(function (e) {
+      if (!set[e.id]) return e;
+      var c = {};
+      for (var k in e) c[k] = e[k];
+      c.handled = !!handled;
+      return c;
+    });
+  }
+
+  function bulkRelabel(emails, ids, category) {
+    if (CATEGORIES.indexOf(category) === -1) return emails;
+    var set = idSet(ids);
+    return (emails || []).map(function (e) {
+      if (!set[e.id]) return e;
+      var c = {};
+      for (var k in e) c[k] = e[k];
+      c.category = category;
+      c.label = LABELS[category];
+      c.reason = 'Bulk-labeled ' + LABELS[category] + ' by you.';
+      c.confidence = 'high';
+      return c;
+    });
+  }
+
   return {
     classify: classify,
     draftReply: draftReply,
@@ -332,6 +480,19 @@
     setLearnedRules: setLearnedRules,
     getLearnedRules: getLearnedRules,
     resetLearnedRules: resetLearnedRules,
+    isAwake: isAwake,
+    visibleEmails: visibleEmails,
+    snoozeRemaining: snoozeRemaining,
+    senderAction: senderAction,
+    listSender: listSender,
+    unlistSender: unlistSender,
+    setSenderLists: setSenderLists,
+    getSenderLists: getSenderLists,
+    resetSenderLists: resetSenderLists,
+    classifyWithSender: classifyWithSender,
+    bulkRemove: bulkRemove,
+    bulkSetHandled: bulkSetHandled,
+    bulkRelabel: bulkRelabel,
     CATEGORIES: CATEGORIES,
     LABELS: LABELS
   };

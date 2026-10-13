@@ -149,5 +149,64 @@ flow('learning: stopwords ("the", "please") are never learned', () => {
   T.resetLearnedRules();
 });
 
+
+// FLOW 14: snooze — hidden until the stamp passes, remaining text formats
+flow('snooze: visibleEmails hides snoozed mail, snoozeRemaining formats', () => {
+  const now = 1000000;
+  const emails = [
+    { id: 'a', snoozedUntil: 0 },
+    { id: 'b', snoozedUntil: now - 1 },
+    { id: 'c', snoozedUntil: now + 25 * 60000 },
+    { id: 'd', snoozedUntil: now + 3 * 3600000 },
+    { id: 'e', snoozedUntil: now + 3 * 24 * 3600000 }
+  ];
+  const vis = T.visibleEmails(emails, now).map((e) => e.id);
+  assert.deepStrictEqual(vis, ['a', 'b'], 'only awake emails visible');
+  assert.strictEqual(T.snoozeRemaining(emails[2], now), '25m');
+  assert.strictEqual(T.snoozeRemaining(emails[3], now), '3h');
+  assert.strictEqual(T.snoozeRemaining(emails[4], now), '3d');
+  assert.strictEqual(T.snoozeRemaining(emails[0], now), '', 'awake -> empty string');
+});
+
+// FLOW 15: sender lists — blocked forces spam, trusted can never be spam
+flow('sender lists: block forces spam, trust rescues spam', () => {
+  T.resetSenderLists();
+  const spammy = 'Congratulations, you won the lottery! Claim your prize now.';
+  const before = T.classify('Prize', spammy);
+  assert.strictEqual(before.category, 'spam', 'sanity: this is spam');
+  T.listSender('trusted', 'Lucky Winner <winner@lotto-prizes.biz>');
+  const trusted = T.classifyWithSender('Prize', spammy, 'Lucky Winner <winner@lotto-prizes.biz>');
+  assert.strictEqual(trusted.category, 'reply', 'trusted sender kept out of spam');
+  T.listSender('blocked', 'newsletter@spam-deals.com');
+  const forced = T.classifyWithSender('Hello', 'Just checking in about Tuesday.', 'Bob <newsletter@spam-deals.com>');
+  assert.strictEqual(forced.category, 'spam', 'blocked sender -> spam');
+  assert.ok(/blocklist/.test(forced.reason));
+  T.listSender('trusted', 'newsletter@spam-deals.com');
+  assert.strictEqual(T.senderAction('newsletter@spam-deals.com'), 'trust');
+  assert.strictEqual(T.senderAction('nobody@nowhere.test'), null);
+  T.resetSenderLists();
+});
+
+// FLOW 16: bulk ops — remove / handled / relabel are pure and scoped to ids
+flow('bulk: remove, handled, relabel act only on the given ids', () => {
+  const emails = [
+    { id: 'm1', category: 'reply', label: 'Needs reply', handled: false },
+    { id: 'm2', category: 'reply', label: 'Needs reply', handled: false },
+    { id: 'm3', category: 'spam', label: 'Spam', handled: false }
+  ];
+  const gone = T.bulkRemove(emails, ['m2']);
+  assert.deepStrictEqual(gone.map((e) => e.id), ['m1', 'm3']);
+  assert.strictEqual(emails.length, 3, 'input untouched');
+  const held = T.bulkSetHandled(emails, ['m1'], true);
+  assert.strictEqual(held[0].handled, true);
+  assert.strictEqual(held[1].handled, false);
+  const rel = T.bulkRelabel(emails, ['m1', 'm3'], 'urgent');
+  assert.strictEqual(rel[0].category, 'urgent');
+  assert.strictEqual(rel[0].label, 'Urgent');
+  assert.strictEqual(rel[2].category, 'urgent');
+  const bad = T.bulkRelabel(emails, ['m1'], 'nope');
+  assert.strictEqual(bad[0].category, 'reply', 'bad category leaves email alone');
+});
+
 console.log('\ne2e: ' + n + ' flows passed');
 EOF

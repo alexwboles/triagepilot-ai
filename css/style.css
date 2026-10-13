@@ -265,3 +265,27 @@ textarea#draft:focus { outline: none; border-color: var(--vermilion); box-shadow
 .keyhelp table { font-size: 13px; border-collapse: collapse; }
 .keyhelp td { padding: 3px 10px 3px 0; color: var(--ink-soft); }
 .hidden { display: none !important; }
+
+/* --- bulk selection ----------------------------------------------------------- */
+.bulk-check { float: left; margin: 4px 8px 0 0; width: 1.05rem; height: 1.05rem; accent-color: var(--vermilion); }
+.bulk-bar {
+  gap: 6px; flex-wrap: wrap; align-items: center;
+  background: var(--card, #fff); border: 2px solid var(--vermilion);
+  padding: 8px 12px; margin-top: 8px;
+}
+.bulk-bar .action.small, .action.small { font-size: 0.8rem; padding: 5px 10px; }
+
+/* --- snooze + sender lists ------------------------------------------------------ */
+.snoozed-row { opacity: 0.75; }
+.snooze-tag {
+  display: inline-block; font-size: 0.72rem; font-weight: 700;
+  border: 1px solid var(--line); padding: 1px 7px; margin-left: 6px;
+}
+.snooze-actions, .sender-actions { margin-top: 10px; font-size: 0.9rem; }
+.sender-note { margin-top: 8px; font-size: 0.88rem; }
+.sender-lists > div { margin: 4px 0; }
+.sender-chip {
+  display: inline-block; border: 1px solid var(--line);
+  padding: 2px 4px 2px 8px; margin: 2px; font-size: 0.82rem;
+}
+.sender-chip .btn-ghost { margin-left: 4px; }

@@ -179,6 +179,21 @@ done
 grep -q '\.aging' css/style.css || missing="$missing css:.aging"
 if [ -z "$missing" ]; then ok "app.js wires handled/aging/shortcuts/learning UI"; else bad "missing wiring:$missing"; fi
 
+# 25: UI wiring — bulk bar, snooze + sender buttons, sender-list panel
+missing=""
+for id in bulkBar senderNote; do grep -q "id=\"$id\"" index.html || missing="$missing #$id"; done
+for n in renderBulk runBulk checkedIds visibleEmails snoozeRemaining classifyWithSender listSender unlistSender senderAction bulkRemove bulkSetHandled bulkRelabel renderSenderNote blockSender trustSender unsnooze; do
+  grep -q "$n" js/app.js || missing="$missing $n"
+done
+for n in isAwake visibleEmails snoozeRemaining senderAction listSender unlistSender setSenderLists getSenderLists classifyWithSender bulkRemove bulkSetHandled bulkRelabel; do
+  grep -q "$n" js/classifier.js || missing="$missing classifier:$n"
+done
+for c in bulk-bar snoozed-row snooze-tag snooze-actions sender-actions sender-note sender-chip; do
+  grep -q "\.$c" css/style.css || missing="$missing css:.$c"
+done
+if [ -z "$missing" ]; then ok "app.js wires bulk actions, snooze, sender lists"; else bad "missing wiring:$missing"; fi
+
+
 echo ""
 echo "smoke: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

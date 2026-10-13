@@ -5,13 +5,15 @@
   var LS_KEY = 'triagepilot.v1';
 
   var state = {
-    emails: [],        // {id, from, subject, body, category, label, confidence, reason, receivedAt, handled}
+    emails: [],        // {id, from, subject, body, category, label, confidence, reason, receivedAt, handled, snoozedUntil}
     selectedId: null,
     tone: 'professional',
     business: 'TriagePilot Demo Co.',
     filterCat: '',     // category filter from digest pills
     query: '',         // inbox search text
     hideHandled: false,// show only open (unhandled) emails
+    showSnoozed: false,// reveal snoozed emails
+    checked: {},       // bulk-selection map id -> true
     learned: null      // learned keyword rules {urgent:[], reply:[], fyi:[], spam:[]}
   };
 
@@ -21,7 +23,8 @@
     try {
       localStorage.setItem(LS_KEY, JSON.stringify({
         emails: state.emails, tone: state.tone, business: state.business,
-        learned: TriagePilot.getLearnedRules()
+        learned: TriagePilot.getLearnedRules(),
+        senders: TriagePilot.getSenderLists()
       }));
     } catch (e) { /* storage unavailable */ }
   }
@@ -38,6 +41,7 @@
         if (s.tone) state.tone = s.tone;
         if (s.business) state.business = s.business;
         if (s.learned) { state.learned = s.learned; TriagePilot.setLearnedRules(s.learned); }
+        if (s.senders) TriagePilot.setSenderLists(s.senders);
         return true;
       }
     } catch (e) { /* fresh start */ }
@@ -57,7 +61,7 @@
   }
 
   function triage(email) {
-    var r = TriagePilot.classify(email.subject, email.body);
+    var r = TriagePilot.classifyWithSender(email.subject, email.body, email.from);
     email.category = r.category;
     email.label = r.label;
     email.confidence = r.confidence;
@@ -71,10 +75,11 @@
 
   function renderDigest() {
     var counts = { urgent: 0, reply: 0, fyi: 0, spam: 0 };
-    var open = 0;
+    var open = 0, snoozed = 0;
     state.emails.forEach(function (e) {
       counts[e.category]++;
       if (!e.handled) open++;
+      if (!TriagePilot.isAwake(e)) snoozed++;
     });
     var total = state.emails.length;
     function pill(cat, n, word) {
@@ -82,6 +87,7 @@
       return '<button class="pill ' + badgeClass(cat) + on + '" data-filter="' + cat +
         '" title="Filter inbox: ' + word + '">' + n + ' ' + word + '</button>';
     }
+    var szOn = state.showSnoozed ? ' on' : '';
     $('digest').innerHTML =
       '<strong>' + total + '</strong> emails triaged &nbsp;·&nbsp; ' +
       pill('urgent', counts.urgent, 'urgent') + ' ' +
@@ -89,6 +95,7 @@
       pill('fyi', counts.fyi, 'FYI') + ' ' +
       pill('spam', counts.spam, 'spam') +
       (total ? ' &nbsp;·&nbsp; <em>' + open + ' open</em>' : '') +
+      (snoozed ? ' &nbsp;<button class="pill' + szOn + '" id="snoozedPill" title="Toggle snoozed emails">' + snoozed + ' snoozed</button>' : '') +
       (total ? ' &nbsp;<button id="copyDigest" class="btn-ghost tiny" title="Copy summary">Copy summary</button>' : '');
     Array.prototype.forEach.call($('digest').querySelectorAll('[data-filter]'), function (b) {
       b.addEventListener('click', function () {
@@ -107,24 +114,86 @@
       cp.textContent = 'Copied!';
       setTimeout(function () { cp.textContent = 'Copy summary'; }, 1500);
     });
+    var sz = $('snoozedPill');
+    if (sz) sz.addEventListener('click', function () {
+      state.showSnoozed = !state.showSnoozed;
+      renderDigest();
+      renderList();
+    });
   }
 
   function sortedShown() {
     var order = { urgent: 0, reply: 1, fyi: 2, spam: 3 };
-    var shown = TriagePilot.filterEmails(state.emails, state.query, state.filterCat);
+    var pool = state.showSnoozed ? state.emails : TriagePilot.visibleEmails(state.emails);
+    var shown = TriagePilot.filterEmails(pool, state.query, state.filterCat);
     if (state.hideHandled) shown = shown.filter(function (e) { return !e.handled; });
     return shown.slice().sort(function (a, b) {
       return (order[a.category] - order[b.category]) || a.id.localeCompare(b.id);
     });
   }
 
+  function checkedIds() {
+    return Object.keys(state.checked).filter(function (id) { return state.checked[id]; });
+  }
+
+  function renderBulk() {
+    var bar = $('bulkBar');
+    if (!bar) return;
+    var ids = checkedIds();
+    if (!ids.length) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+    bar.style.display = 'flex';
+    var n = ids.length;
+    bar.innerHTML =
+      '<strong>' + n + ' selected</strong>' +
+      '<button class="action" data-bulk="handled">Mark handled</button>' +
+      '<button class="action" data-bulk="reopen">Reopen</button>' +
+      '<button class="action" data-bulk="urgent">Label urgent</button>' +
+      '<button class="action" data-bulk="reply">Label needs-reply</button>' +
+      '<button class="action" data-bulk="fyi">Label FYI</button>' +
+      '<button class="action" data-bulk="spam">Label spam</button>' +
+      '<button class="action danger" data-bulk="delete">Delete</button>' +
+      '<button class="action" data-bulk="clear">Clear selection</button>';
+    Array.prototype.forEach.call(bar.querySelectorAll('[data-bulk]'), function (b) {
+      b.addEventListener('click', function () { runBulk(b.getAttribute('data-bulk')); });
+    });
+  }
+
+  function runBulk(op) {
+    var ids = checkedIds();
+    if (!ids.length) return;
+    if (op === 'delete') {
+      if (!confirm('Delete ' + ids.length + ' selected email' + (ids.length === 1 ? '' : 's') + '?')) return;
+      state.emails = TriagePilot.bulkRemove(state.emails, ids);
+      if (state.selectedId && ids.indexOf(state.selectedId) !== -1) {
+        state.selectedId = null;
+        $('detail').innerHTML = '<p class="empty">Select an email from the queue to open its dossier and draft a reply.</p>';
+      }
+    } else if (op === 'handled') {
+      state.emails = TriagePilot.bulkSetHandled(state.emails, ids, true);
+    } else if (op === 'reopen') {
+      state.emails = TriagePilot.bulkSetHandled(state.emails, ids, false);
+    } else if (op === 'clear') {
+      state.checked = {};
+    } else {
+      state.emails = TriagePilot.bulkRelabel(state.emails, ids, op);
+    }
+    if (op !== 'clear') state.checked = {};
+    saveState();
+    renderDigest();
+    renderList();
+    renderSenderNote();
+  }
+
   function renderList() {
     var sorted = sortedShown();
     var html = sorted.map(function (e) {
-      return '<div class="email' + (e.id === state.selectedId ? ' sel' : '') + (e.handled ? ' done' : '') + '" data-id="' + e.id + '" data-cat="' + e.category + '">' +
+      var sz = TriagePilot.snoozeRemaining(e);
+      return '<div class="email' + (e.id === state.selectedId ? ' sel' : '') + (e.handled ? ' done' : '') + (sz ? ' snoozed-row' : '') + '" data-id="' + e.id + '" data-cat="' + e.category + '">' +
+        '<input type="checkbox" class="bulk-check" data-check="' + e.id + '"' + (state.checked[e.id] ? ' checked' : '') + ' aria-label="Select email">' +
         '<div class="email-top"><span class="pill ' + badgeClass(e.category) + '">' + escapeHtml(e.label) + '</span>' +
         '<span class="conf">' + escapeHtml(e.confidence) + '</span>' +
         (agingEmail(e) ? '<span class="aging">aging</span>' : '') +
+        (sz ? '<span class="snooze-tag">snoozed ' + escapeHtml(sz) + '</span>' : '') +
         (e.handled ? '<span class="done-tag">handled</span>' : '') + '</div>' +
         '<div class="email-subj">' + escapeHtml(e.subject) + '</div>' +
         '<div class="email-from">' + escapeHtml(e.from) + '</div></div>';
@@ -140,9 +209,18 @@
       state.filterCat = ''; state.query = ''; $('searchBox').value = '';
       renderDigest(); renderList();
     });
+    Array.prototype.forEach.call($('inbox').querySelectorAll('.bulk-check'), function (cb) {
+      cb.addEventListener('click', function (ev) { ev.stopPropagation(); });
+      cb.addEventListener('change', function () {
+        var id = cb.getAttribute('data-check');
+        if (cb.checked) state.checked[id] = true; else delete state.checked[id];
+        renderBulk();
+      });
+    });
     Array.prototype.forEach.call($('inbox').querySelectorAll('.email'), function (el) {
       el.addEventListener('click', function () { selectEmail(el.getAttribute('data-id')); });
     });
+    renderBulk();
   }
 
   function selectEmail(id) {
@@ -171,6 +249,22 @@
       '<button id="handledBtn" class="action">' + (e.handled ? 'Reopen' : 'Mark handled') + ' <span class="kbd">m</span></button>' +
       '<button id="fixLabel" class="action" title="Cycle to the next label">Wrong label? → ' + TriagePilot.LABELS[TriagePilot.nextCategory(e.category)] + '</button>' +
       '<button id="delEmail" class="action danger">Delete</button>' +
+      '</div>' +
+      '<div class="snooze-actions">' +
+      '<span class="muted">Snooze:</span> ' +
+      '<button id="sz1h" class="action small">1 hour</button> ' +
+      '<button id="sz4h" class="action small">4 hours</button> ' +
+      '<button id="szTomorrow" class="action small">Tomorrow</button> ' +
+      (TriagePilot.isAwake(e) ? '' : '<button id="unsnooze" class="action small">Unsnooze</button>') +
+      '</div>' +
+      '<div class="sender-actions">' +
+      '<span class="muted">Sender:</span> ' +
+      (TriagePilot.senderAction(e.from) === 'spam'
+        ? '<button id="unlistSender" class="action small">Unblock</button>'
+        : '<button id="blockSender" class="action small">Block <span class="kbd">b</span></button>') + ' ' +
+      (TriagePilot.senderAction(e.from) === 'trust'
+        ? '<button id="unlistSender2" class="action small">Untrust</button>'
+        : '<button id="trustSender" class="action small">Trust</button>') +
       '</div>' +
       '<textarea id="draft" rows="10" placeholder="Your draft will appear here — edit it freely."></textarea>' +
       '<button id="copyBtn" class="action">Copy draft</button> <span id="copied"></span>';
@@ -210,6 +304,50 @@
       renderLearnNote();
     });
     $('handledBtn').addEventListener('click', function () { toggleHandled(e.id); });
+    // snooze
+    var HOUR = 60 * 60 * 1000;
+    function snoozeFor(ms) {
+      e.snoozedUntil = Date.now() + ms;
+      saveState(); renderDigest(); renderList(); selectEmail(e.id);
+    }
+    $('sz1h').addEventListener('click', function () { snoozeFor(HOUR); });
+    $('sz4h').addEventListener('click', function () { snoozeFor(4 * HOUR); });
+    $('szTomorrow').addEventListener('click', function () {
+      var t = new Date(); t.setHours(9, 0, 0, 0);
+      if (t.getTime() <= Date.now()) t = new Date(t.getTime() + 24 * 60 * 60 * 1000);
+      e.snoozedUntil = t.getTime();
+      saveState(); renderDigest(); renderList(); selectEmail(e.id);
+    });
+    var un = $('unsnooze');
+    if (un) un.addEventListener('click', function () {
+      e.snoozedUntil = 0; saveState(); renderDigest(); renderList(); selectEmail(e.id);
+    });
+    // sender lists
+    function refreshAfterSender(key) {
+      saveState(); renderDigest(); renderList(); renderSenderNote();
+      selectEmail(e.id);
+    }
+    var bl = $('blockSender');
+    if (bl) bl.addEventListener('click', function () {
+      if (!confirm('Block this sender? Future emails from them file as spam.')) return;
+      TriagePilot.listSender('blocked', e.from);
+      triage(e); // re-triage with the new list applied
+      refreshAfterSender();
+    });
+    var tr = $('trustSender');
+    if (tr) tr.addEventListener('click', function () {
+      TriagePilot.listSender('trusted', e.from);
+      triage(e);
+      refreshAfterSender();
+    });
+    ['unlistSender', 'unlistSender2'].forEach(function (id) {
+      var b = $(id);
+      if (b) b.addEventListener('click', function () {
+        TriagePilot.unlistSender(e.from);
+        triage(e);
+        refreshAfterSender();
+      });
+    });
     $('delEmail').addEventListener('click', function () {
       if (!confirm('Delete this email from the inbox?')) return;
       state.emails = state.emails.filter(function (x) { return x.id !== e.id; });
@@ -290,8 +428,33 @@
     return Object.keys(r).reduce(function (n, c) { return n + r[c].length; }, 0);
   }
 
-  function renderLearnNote() {
-    var el = document.getElementById('learnNote');
+  function renderSenderNote() {
+    var el = $('senderNote');
+    if (!el) return;
+    var lists = TriagePilot.getSenderLists();
+    function rows(kind, items) {
+      if (!items.length) return '';
+      return items.map(function (k) {
+        return '<span class="sender-chip">' + escapeHtml(k) +
+          ' <button data-kind="' + kind + '" data-key="' + escapeHtml(k) + '" class="btn-ghost tiny" title="Remove">×</button></span>';
+      }).join(' ');
+    }
+    var total = lists.blocked.length + lists.trusted.length;
+    el.innerHTML = total
+      ? '<div class="sender-lists"><div><strong>Blocked (' + lists.blocked.length + '):</strong> ' +
+        (rows('blocked', lists.blocked) || '<span class="muted">none</span>') + '</div>' +
+        '<div><strong>Trusted (' + lists.trusted.length + '):</strong> ' +
+        (rows('trusted', lists.trusted) || '<span class="muted">none</span>') + '</div></div>'
+      : '<span class="muted">Sender lists: block or trust a sender from any email&rsquo;s dossier to auto-file future mail.</span>';
+    Array.prototype.forEach.call(el.querySelectorAll('[data-key]'), function (b) {
+      b.addEventListener('click', function () {
+        TriagePilot.unlistSender(b.getAttribute('data-key'));
+        saveState(); renderSenderNote();
+      });
+    });
+  }
+
+  function renderLearnNote() {    var el = document.getElementById('learnNote');
     if (!el) return;
     var n = learnedCount();
     el.innerHTML = n
@@ -356,6 +519,10 @@
       else if (k === '3') shortcutRecategorize('fyi');
       else if (k === '4') shortcutRecategorize('spam');
       else if (k === 'm' || k === 'M') toggleHandled(state.selectedId);
+      else if (k === 'b' || k === 'B') {
+        var b = document.getElementById('blockSender');
+        if (b) b.click(); else handled = false;
+      }
       else if (k === 'd' || k === 'D') {
         var b = document.getElementById('delEmail');
         if (b) b.click(); else handled = false;
@@ -392,6 +559,7 @@
     });
     initShortcuts();
     renderLearnNote();
+    renderSenderNote();
     var restored = loadState();
     if (restored) {
       $('bizName').value = state.business === 'TriagePilot Demo Co.' ? '' : state.business;

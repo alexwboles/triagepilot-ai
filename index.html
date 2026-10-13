@@ -32,13 +32,16 @@
       <label class="open-only"><input type="checkbox" id="hideHandled"> Open only</label>
       <button id="clearSpam" class="btn-ghost small">Clear spam</button>
     </div>
+    <div id="bulkBar" class="bulk-bar" style="display:none" aria-live="polite"></div>
     <div id="learnNote" class="learn-note"></div>
+    <div id="senderNote" class="sender-note"></div>
     <div id="keyHelp" class="keyhelp hidden" role="dialog" aria-label="Keyboard shortcuts">
       <h4>Keyboard shortcuts</h4>
       <table>
         <tr><td><span class="kbd">j</span> / <span class="kbd">k</span></td><td>Next / previous email</td></tr>
         <tr><td><span class="kbd">1</span>–<span class="kbd">4</span></td><td>Label: Urgent / Needs reply / FYI / Spam (teaches the classifier)</td></tr>
         <tr><td><span class="kbd">m</span></td><td>Mark handled / reopen</td></tr>
+        <tr><td><span class="kbd">b</span></td><td>Block sender (future mail auto-files as spam)</td></tr>
         <tr><td><span class="kbd">d</span></td><td>Delete email</td></tr>
         <tr><td><span class="kbd">?</span></td><td>Toggle this panel</td></tr>
       </table>
