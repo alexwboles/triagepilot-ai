@@ -238,6 +238,23 @@
     });
   }
 
+  /** Superhuman-style split-inbox filter: '' (all awake), focus (urgent+reply),
+      fyi, spam, or snoozed (only sleeping emails). */
+  function applySplit(emails, split) {
+    var list = emails || [];
+    if (split === 'snoozed') {
+      return list.filter(function (e) { return !isAwake(e); });
+    }
+    var awake = list.filter(function (e) { return isAwake(e); });
+    if (split === 'focus') {
+      return awake.filter(function (e) { return e.category === 'urgent' || e.category === 'reply'; });
+    }
+    if (split === 'fyi' || split === 'spam') {
+      return awake.filter(function (e) { return e.category === split; });
+    }
+    return awake;
+  }
+
   /** Cycle a label one step: urgent -> reply -> fyi -> spam -> urgent. */
   function nextCategory(cat) {
     var i = CATEGORIES.indexOf(cat);
@@ -474,6 +491,7 @@
     classify: classify,
     draftReply: draftReply,
     filterEmails: filterEmails,
+    applySplit: applySplit,
     nextCategory: nextCategory,
     digestText: digestText,
     learnCorrection: learnCorrection,

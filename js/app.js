@@ -9,10 +9,10 @@
     selectedId: null,
     tone: 'professional',
     business: 'TriagePilot Demo Co.',
-    filterCat: '',     // category filter from digest pills
+    filterCat: '',     // (legacy, unused — splits replaced it)
+    split: '',         // split-inbox tab: '' | 'focus' | 'fyi' | 'spam' | 'snoozed'
     query: '',         // inbox search text
     hideHandled: false,// show only open (unhandled) emails
-    showSnoozed: false,// reveal snoozed emails
     checked: {},       // bulk-selection map id -> true
     learned: null      // learned keyword rules {urgent:[], reply:[], fyi:[], spam:[]}
   };
@@ -73,38 +73,60 @@
       (Date.now() - (e.receivedAt || Date.now())) > AGING_MS;
   }
 
+  /* Split-inbox counts + inbox-zero meter. Splits: '' (all), focus, fyi, spam, snoozed. */
+  function splitCounts() {
+    var c = { all: 0, focus: 0, fyi: 0, spam: 0, snoozed: 0 };
+    state.emails.forEach(function (e) {
+      var awake = TriagePilot.isAwake(e);
+      if (!awake) { c.snoozed++; return; }
+      c.all++;
+      if (e.category === 'urgent' || e.category === 'reply') c.focus++;
+      else if (e.category === 'fyi') c.fyi++;
+      else if (e.category === 'spam') c.spam++;
+    });
+    return c;
+  }
+
+  function renderSplits() {
+    var c = splitCounts();
+    ['all', 'focus', 'fyi', 'spam', 'snoozed'].forEach(function (k) {
+      var b = $('split-' + k);
+      if (b) b.textContent = c[k];
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.split'), function (t) {
+      t.classList.toggle('active', t.getAttribute('data-split') === state.split);
+    });
+    var zm = $('zeroMeter');
+    if (zm) {
+      var open = state.emails.filter(function (e) { return !e.handled && TriagePilot.isAwake(e); }).length;
+      zm.textContent = open === 0 && state.emails.length
+        ? '✓ inbox zero'
+        : (open ? open + ' to zero' : '');
+      zm.classList.toggle('done', open === 0 && state.emails.length > 0);
+    }
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.split'), function (t) {
+    t.addEventListener('click', function () {
+      var s = t.getAttribute('data-split');
+      state.split = (state.split === s) ? '' : s;
+      renderSplits();
+      renderList();
+    });
+  });
+
   function renderDigest() {
-    var counts = { urgent: 0, reply: 0, fyi: 0, spam: 0 };
     var open = 0, snoozed = 0;
     state.emails.forEach(function (e) {
-      counts[e.category]++;
       if (!e.handled) open++;
       if (!TriagePilot.isAwake(e)) snoozed++;
     });
     var total = state.emails.length;
-    function pill(cat, n, word) {
-      var on = state.filterCat === cat ? ' on' : '';
-      return '<button class="pill ' + badgeClass(cat) + on + '" data-filter="' + cat +
-        '" title="Filter inbox: ' + word + '">' + n + ' ' + word + '</button>';
-    }
-    var szOn = state.showSnoozed ? ' on' : '';
     $('digest').innerHTML =
-      '<strong>' + total + '</strong> emails triaged &nbsp;·&nbsp; ' +
-      pill('urgent', counts.urgent, 'urgent') + ' ' +
-      pill('reply', counts.reply, 'need replies') + ' ' +
-      pill('fyi', counts.fyi, 'FYI') + ' ' +
-      pill('spam', counts.spam, 'spam') +
+      '<strong>' + total + '</strong> emails triaged' +
       (total ? ' &nbsp;·&nbsp; <em>' + open + ' open</em>' : '') +
-      (snoozed ? ' &nbsp;<button class="pill' + szOn + '" id="snoozedPill" title="Toggle snoozed emails">' + snoozed + ' snoozed</button>' : '') +
+      (snoozed ? ' &nbsp;·&nbsp; <em>' + snoozed + ' snoozed</em>' : '') +
       (total ? ' &nbsp;<button id="copyDigest" class="btn-ghost tiny" title="Copy summary">Copy summary</button>' : '');
-    Array.prototype.forEach.call($('digest').querySelectorAll('[data-filter]'), function (b) {
-      b.addEventListener('click', function () {
-        var cat = b.getAttribute('data-filter');
-        state.filterCat = (state.filterCat === cat) ? '' : cat;
-        renderDigest();
-        renderList();
-      });
-    });
     var cp = $('copyDigest');
     if (cp) cp.addEventListener('click', function () {
       var text = TriagePilot.digestText(state.emails);
@@ -114,18 +136,13 @@
       cp.textContent = 'Copied!';
       setTimeout(function () { cp.textContent = 'Copy summary'; }, 1500);
     });
-    var sz = $('snoozedPill');
-    if (sz) sz.addEventListener('click', function () {
-      state.showSnoozed = !state.showSnoozed;
-      renderDigest();
-      renderList();
-    });
+    renderSplits();
   }
 
   function sortedShown() {
     var order = { urgent: 0, reply: 1, fyi: 2, spam: 3 };
-    var pool = state.showSnoozed ? state.emails : TriagePilot.visibleEmails(state.emails);
-    var shown = TriagePilot.filterEmails(pool, state.query, state.filterCat);
+    var pool = TriagePilot.applySplit(state.emails, state.split);
+    var shown = TriagePilot.filterEmails(pool, state.query, '');
     if (state.hideHandled) shown = shown.filter(function (e) { return !e.handled; });
     return shown.slice().sort(function (a, b) {
       return (order[a.category] - order[b.category]) || a.id.localeCompare(b.id);
@@ -185,6 +202,7 @@
   }
 
   function renderList() {
+    renderSplits();
     var sorted = sortedShown();
     var html = sorted.map(function (e) {
       var sz = TriagePilot.snoozeRemaining(e);
@@ -206,7 +224,7 @@
     $('inbox').innerHTML = html;
     var cf = $('clearFilter');
     if (cf) cf.addEventListener('click', function () {
-      state.filterCat = ''; state.query = ''; $('searchBox').value = '';
+      state.split = ''; state.query = ''; $('searchBox').value = '';
       renderDigest(); renderList();
     });
     Array.prototype.forEach.call($('inbox').querySelectorAll('.bulk-check'), function (cb) {
@@ -402,7 +420,7 @@
           triage(e);
           return e;
         });
-        state.filterCat = '';
+        state.split = '';
         saveState();
         renderDigest();
         renderList();
@@ -505,6 +523,122 @@
     renderLearnNote();
   }
 
+  /* ---------- command palette (Ctrl/Cmd+K, Superhuman-style) ---------- */
+  function selectedEmail() {
+    return state.emails.filter(function (x) { return x.id === state.selectedId; })[0] || null;
+  }
+
+  function snoozeSelected(ms) {
+    var e = selectedEmail();
+    if (!e) return;
+    e.snoozedUntil = Date.now() + ms;
+    saveState(); renderDigest(); renderList(); selectEmail(e.id);
+  }
+
+  function snoozeTomorrow() {
+    var e = selectedEmail();
+    if (!e) return;
+    var t = new Date(); t.setHours(9, 0, 0, 0);
+    if (t.getTime() <= Date.now()) t = new Date(t.getTime() + 24 * 60 * 60 * 1000);
+    e.snoozedUntil = t.getTime();
+    saveState(); renderDigest(); renderList(); selectEmail(e.id);
+  }
+
+  function clickBtn(id) {
+    var b = document.getElementById(id);
+    if (b) b.click();
+  }
+
+  var COMMANDS = [
+    { name: 'Go to: All', hint: 'split', run: function () { state.split = ''; renderSplits(); renderList(); } },
+    { name: 'Go to: Focus', hint: 'split', run: function () { state.split = 'focus'; renderSplits(); renderList(); } },
+    { name: 'Go to: FYI', hint: 'split', run: function () { state.split = 'fyi'; renderSplits(); renderList(); } },
+    { name: 'Go to: Spam', hint: 'split', run: function () { state.split = 'spam'; renderSplits(); renderList(); } },
+    { name: 'Go to: Snoozed', hint: 'split', run: function () { state.split = 'snoozed'; renderSplits(); renderList(); } },
+    { name: 'Mark handled / reopen', hint: 'm', run: function () { toggleHandled(state.selectedId); } },
+    { name: 'Snooze 1 hour', hint: 'snooze', run: function () { snoozeSelected(3600000); } },
+    { name: 'Snooze 4 hours', hint: 'snooze', run: function () { snoozeSelected(4 * 3600000); } },
+    { name: 'Snooze until tomorrow 9am', hint: 'snooze', run: function () { snoozeTomorrow(); } },
+    { name: 'Label: Urgent', hint: '1', run: function () { shortcutRecategorize('urgent'); } },
+    { name: 'Label: Needs reply', hint: '2', run: function () { shortcutRecategorize('reply'); } },
+    { name: 'Label: FYI', hint: '3', run: function () { shortcutRecategorize('fyi'); } },
+    { name: 'Label: Spam', hint: '4', run: function () { shortcutRecategorize('spam'); } },
+    { name: 'Block sender', hint: 'b', run: function () { clickBtn('blockSender'); } },
+    { name: 'Trust sender', hint: '', run: function () { clickBtn('trustSender'); } },
+    { name: 'Delete email', hint: 'd', run: function () { clickBtn('delEmail'); } },
+    { name: 'Clear spam', hint: '', run: function () { clearSpam(); } },
+    { name: 'Load sample inbox', hint: '', run: function () { loadSamples(); } },
+    { name: 'Toggle keyboard shortcuts', hint: '?', run: function () { toggleKeyHelp(); } }
+  ];
+
+  var cmdkIndex = 0, cmdkItems = [];
+
+  function openCmdk() {
+    $('cmdk').classList.remove('hidden');
+    $('cmdk-input').value = '';
+    renderCmdk('');
+    setTimeout(function () { $('cmdk-input').focus(); }, 0);
+  }
+
+  function closeCmdk() {
+    $('cmdk').classList.add('hidden');
+  }
+
+  function cmdkNorm(s) {
+    return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
+  }
+
+  function renderCmdk(q) {
+    var needle = cmdkNorm(q);
+    cmdkItems = COMMANDS.filter(function (c) {
+      return !needle || cmdkNorm(c.name + ' ' + c.hint).indexOf(needle) !== -1;
+    });
+    cmdkIndex = Math.min(cmdkIndex, Math.max(0, cmdkItems.length - 1));
+    if (!cmdkItems.length) cmdkIndex = 0;
+    $('cmdk-list').innerHTML = cmdkItems.length
+      ? cmdkItems.map(function (c, i) {
+          return '<div class="cmdk-item' + (i === cmdkIndex ? ' active' : '') + '" data-i="' + i + '">' +
+            '<span>' + escapeHtml(c.name) + '</span>' +
+            (c.hint ? '<span class="kbd">' + escapeHtml(c.hint) + '</span>' : '') + '</div>';
+        }).join('')
+      : '<div class="cmdk-empty">No matching command.</div>';
+    Array.prototype.forEach.call($('cmdk-list').querySelectorAll('.cmdk-item'), function (el) {
+      el.addEventListener('click', function () {
+        var c = cmdkItems[parseInt(el.getAttribute('data-i'), 10)];
+        closeCmdk();
+        if (c) c.run();
+      });
+    });
+  }
+
+  function initCmdk() {
+    document.addEventListener('keydown', function (ev) {
+      var isK = (ev.key === 'k' || ev.key === 'K') && (ev.metaKey || ev.ctrlKey);
+      if (isK) {
+        ev.preventDefault();
+        $('cmdk').classList.contains('hidden') ? openCmdk() : closeCmdk();
+        return;
+      }
+      if ($('cmdk').classList.contains('hidden')) return;
+      if (ev.key === 'Escape') { closeCmdk(); ev.preventDefault(); }
+      else if (ev.key === 'ArrowDown') { cmdkIndex = Math.min(cmdkItems.length - 1, cmdkIndex + 1); renderCmdk($('cmdk-input').value); ev.preventDefault(); }
+      else if (ev.key === 'ArrowUp') { cmdkIndex = Math.max(0, cmdkIndex - 1); renderCmdk($('cmdk-input').value); ev.preventDefault(); }
+      else if (ev.key === 'Enter') {
+        var c = cmdkItems[cmdkIndex];
+        closeCmdk();
+        if (c) c.run();
+        ev.preventDefault();
+      }
+    });
+    $('cmdk-input').addEventListener('input', function (ev) {
+      cmdkIndex = 0;
+      renderCmdk(ev.target.value);
+    });
+    $('cmdk').addEventListener('click', function (ev) {
+      if (ev.target === $('cmdk')) closeCmdk();
+    });
+  }
+
   function initShortcuts() {
     document.addEventListener('keydown', function (ev) {
       var tag = (document.activeElement && document.activeElement.tagName) || '';
@@ -558,6 +692,7 @@
       renderList();
     });
     initShortcuts();
+    initCmdk();
     renderLearnNote();
     renderSenderNote();
     var restored = loadState();

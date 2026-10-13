@@ -27,8 +27,16 @@
 <main class="board">
   <section class="pane queue-pane" aria-label="Inbox queue">
     <div class="pane-head"><p class="kicker">Queue</p><h2>Inbox</h2><p class="pane-sub">Urgent first, noise last.</p></div>
+    <div class="splits" role="tablist" aria-label="Split inbox">
+      <button class="split active" data-split="" role="tab">All <b id="split-all">0</b></button>
+      <button class="split" data-split="focus" role="tab">Focus <b id="split-focus">0</b></button>
+      <button class="split" data-split="fyi" role="tab">FYI <b id="split-fyi">0</b></button>
+      <button class="split" data-split="spam" role="tab">Spam <b id="split-spam">0</b></button>
+      <button class="split" data-split="snoozed" role="tab">Snoozed <b id="split-snoozed">0</b></button>
+      <span class="zero-meter" id="zeroMeter" title="Emails left to reach inbox zero"></span>
+    </div>
     <div class="queue-tools">
-      <input id="searchBox" type="search" placeholder="Search inbox… (j/k to move, ? for keys)" aria-label="Search inbox">
+      <input id="searchBox" type="search" placeholder="Search inbox… (j/k to move, ⌘K for commands, ? for keys)" aria-label="Search inbox">
       <label class="open-only"><input type="checkbox" id="hideHandled"> Open only</label>
       <button id="clearSpam" class="btn-ghost small">Clear spam</button>
     </div>
@@ -43,6 +51,7 @@
         <tr><td><span class="kbd">m</span></td><td>Mark handled / reopen</td></tr>
         <tr><td><span class="kbd">b</span></td><td>Block sender (future mail auto-files as spam)</td></tr>
         <tr><td><span class="kbd">d</span></td><td>Delete email</td></tr>
+        <tr><td><span class="kbd">Ctrl</span>/<span class="kbd">⌘</span> + <span class="kbd">K</span></td><td>Command palette — run any action</td></tr>
         <tr><td><span class="kbd">?</span></td><td>Toggle this panel</td></tr>
       </table>
     </div>
@@ -68,5 +77,12 @@
 
 <script src="js/classifier.js"></script>
 <script src="js/app.js"></script>
+<div id="cmdk" class="cmdk hidden" role="dialog" aria-label="Command palette">
+  <div class="cmdk-box">
+    <input id="cmdk-input" type="text" placeholder="Type a command… (mark handled, snooze, go to focus…)" aria-label="Command search" autocomplete="off">
+    <div id="cmdk-list" class="cmdk-list"></div>
+    <div class="cmdk-hint"><span class="kbd">↑↓</span> navigate · <span class="kbd">↵</span> run · <span class="kbd">esc</span> close</div>
+  </div>
+</div>
 </body>
 </html>

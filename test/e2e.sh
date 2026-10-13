@@ -208,5 +208,28 @@ flow('bulk: remove, handled, relabel act only on the given ids', () => {
   assert.strictEqual(bad[0].category, 'reply', 'bad category leaves email alone');
 });
 
+// REDESIGN FLOW: split-inbox views partition the inbox like Superhuman
+flow('split inbox: focus = urgent+reply, fyi/spam by category, snoozed separate', () => {
+  const box = samples.map((s) => {
+    const r = T.classify(s.subject, s.body);
+    return { id: s.id, category: r.category, label: r.label, handled: false };
+  });
+  const focus = T.applySplit(box, 'focus');
+  assert.ok(focus.length >= 2, 'focus has emails');
+  assert.ok(focus.every((e) => e.category === 'urgent' || e.category === 'reply'));
+  const fyi = T.applySplit(box, 'fyi');
+  assert.ok(fyi.length >= 1 && fyi.every((e) => e.category === 'fyi'));
+  const spam = T.applySplit(box, 'spam');
+  assert.ok(spam.length >= 1 && spam.every((e) => e.category === 'spam'));
+  const all = T.applySplit(box, '');
+  assert.strictEqual(all.length, box.length, 'all shows everything awake');
+  assert.strictEqual(T.applySplit(box, 'snoozed').length, 0, 'no snoozed yet');
+  // snoozing one moves it to the snoozed split and out of the others
+  const sleeping = box.map((e) => ({ ...e, snoozedUntil: e.id === 'e1' ? Date.now() + 3600000 : 0 }));
+  assert.strictEqual(T.applySplit(sleeping, 'snoozed').length, 1);
+  assert.strictEqual(T.applySplit(sleeping, '').length, box.length - 1);
+  assert.ok(!T.applySplit(sleeping, 'focus').some((e) => e.id === 'e1'));
+});
+
 console.log('\ne2e: ' + n + ' flows passed');
 EOF
