@@ -3,17 +3,20 @@
   'use strict';
 
   var LS_KEY = 'triagepilot.v1';
+  var LS_SNIPPETS = 'triagepilot.snippets.v1';
 
   var state = {
-    emails: [],        // {id, from, subject, body, category, label, confidence, reason, receivedAt, handled, snoozedUntil}
+    emails: [],        // {id, from, subject, body, category, label, confidence, reason, receivedAt, handled, snoozedUntil, taskDue}
     selectedId: null,
     tone: 'professional',
     business: 'TriagePilot Demo Co.',
     filterCat: '',     // (legacy, unused — splits replaced it)
-    split: '',         // split-inbox tab: '' | 'focus' | 'fyi' | 'spam' | 'snoozed'
+    split: '',         // split-inbox tab: '' | 'focus' | 'fyi' | 'spam' | 'snoozed' | 'tasks'
     query: '',         // inbox search text
+    senderFilter: null,// sender bundle view: full "from" string, or null
     hideHandled: false,// show only open (unhandled) emails
     checked: {},       // bulk-selection map id -> true
+    snippets: [],      // reply snippets [{name, text}]
     learned: null      // learned keyword rules {urgent:[], reply:[], fyi:[], spam:[]}
   };
 
@@ -27,11 +30,16 @@
         senders: TriagePilot.getSenderLists(),
         senderMemory: TriagePilot.getSenderMemory()
       }));
+      localStorage.setItem(LS_SNIPPETS, JSON.stringify(state.snippets));
     } catch (e) { /* storage unavailable */ }
   }
 
   function loadState() {
     try {
+      var sn = JSON.parse(localStorage.getItem(LS_SNIPPETS) || 'null');
+      if (Array.isArray(sn)) {
+        state.snippets = sn.filter(function (s) { return s && s.name && s.text; }).slice(0, 50);
+      }
       var s = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
       if (s && Array.isArray(s.emails)) {
         state.emails = s.emails.map(function (e) {
@@ -75,10 +83,11 @@
       (Date.now() - (e.receivedAt || Date.now())) > AGING_MS;
   }
 
-  /* Split-inbox counts + inbox-zero meter. Splits: '' (all), focus, fyi, spam, snoozed. */
+  /* Split-inbox counts + inbox-zero meter. Splits: '' (all), focus, fyi, spam, snoozed, tasks. */
   function splitCounts() {
-    var c = { all: 0, focus: 0, fyi: 0, spam: 0, snoozed: 0 };
+    var c = { all: 0, focus: 0, fyi: 0, spam: 0, snoozed: 0, tasks: 0 };
     state.emails.forEach(function (e) {
+      if (TriagePilot.taskState(e)) c.tasks++;
       var awake = TriagePilot.isAwake(e);
       if (!awake) { c.snoozed++; return; }
       c.all++;
@@ -91,7 +100,7 @@
 
   function renderSplits() {
     var c = splitCounts();
-    ['all', 'focus', 'fyi', 'spam', 'snoozed'].forEach(function (k) {
+    ['all', 'focus', 'fyi', 'spam', 'snoozed', 'tasks'].forEach(function (k) {
       var b = $('split-' + k);
       if (b) b.textContent = c[k];
     });
@@ -125,10 +134,14 @@
     });
     var total = state.emails.length;
     var sent = TriagePilot.sentCount(state.emails);
+    var tasks = state.emails.filter(function (e) { return !!TriagePilot.taskState(e); });
+    var overdue = tasks.filter(function (e) { return TriagePilot.taskState(e).overdue; }).length;
     $('digest').innerHTML =
       '<strong>' + total + '</strong> emails triaged' +
       (total ? ' &nbsp;·&nbsp; <em>' + open + ' open</em>' : '') +
       (sent ? ' &nbsp;·&nbsp; <em>' + sent + ' ' + (sent === 1 ? 'reply' : 'replies') + ' sent</em>' : '') +
+      (tasks.length ? ' &nbsp;·&nbsp; <em>' + tasks.length + ' task' + (tasks.length === 1 ? '' : 's') + '</em>' : '') +
+      (overdue ? ' &nbsp;·&nbsp; <em class="ticker-alert">' + overdue + ' overdue</em>' : '') +
       (snoozed ? ' &nbsp;·&nbsp; <em>' + snoozed + ' snoozed</em>' : '') +
       (total ? ' &nbsp;<button id="copyDigest" class="btn-ghost tiny" title="Copy summary">Copy summary</button>' : '');
     var cp = $('copyDigest');
@@ -146,9 +159,15 @@
   function sortedShown() {
     var order = { urgent: 0, reply: 1, fyi: 2, spam: 3 };
     var pool = TriagePilot.applySplit(state.emails, state.split);
+    if (state.senderFilter) pool = TriagePilot.emailsFromSender(pool, state.senderFilter);
     var shown = TriagePilot.filterEmails(pool, state.query, '');
     if (state.hideHandled) shown = shown.filter(function (e) { return !e.handled; });
     return shown.slice().sort(function (a, b) {
+      if (state.split === 'tasks') {
+        var da = TriagePilot.taskState(a), db = TriagePilot.taskState(b);
+        var d = (da ? da.due : Infinity) - (db ? db.due : Infinity);
+        if (d) return d;
+      }
       return (order[a.category] - order[b.category]) || a.id.localeCompare(b.id);
     });
   }
@@ -205,21 +224,51 @@
     renderSenderNote();
   }
 
+  /* Shortwave-style sender bundle banner: the queue is showing one sender's mail. */
+  function renderSenderBanner() {
+    var el = $('senderBanner');
+    if (!el) return;
+    if (!state.senderFilter) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+    var n = TriagePilot.emailsFromSender(state.emails, state.senderFilter).length;
+    el.classList.remove('hidden');
+    el.innerHTML =
+      '<span class="bundle-ic" aria-hidden="true">▣</span>' +
+      '<span><strong>Sender bundle</strong> — all mail from ' + escapeHtml(state.senderFilter) +
+      ' (' + n + ' email' + (n === 1 ? '' : 's') + '). Bulk actions below apply to this sender.</span>' +
+      '<button id="senderClear" class="btn-ghost tiny">Clear bundle</button>';
+    $('senderClear').addEventListener('click', function () {
+      state.senderFilter = null;
+      renderDigest();
+      renderList();
+    });
+  }
+
+  function senderInitial(from) {
+    var m = /^([^<(@]+)/.exec(String(from || '').trim());
+    var name = (m ? m[1] : String(from || '')).trim();
+    return (name.charAt(0) || '?').toUpperCase();
+  }
+
   function renderList() {
     renderSplits();
+    renderSenderBanner();
     var sorted = sortedShown();
     var html = sorted.map(function (e) {
       var sz = TriagePilot.snoozeRemaining(e);
+      var ts = TriagePilot.taskState(e);
       return '<div class="email' + (e.id === state.selectedId ? ' sel' : '') + (e.handled ? ' done' : '') + (sz ? ' snoozed-row' : '') + '" data-id="' + e.id + '" data-cat="' + e.category + '">' +
         '<input type="checkbox" class="bulk-check" data-check="' + e.id + '"' + (state.checked[e.id] ? ' checked' : '') + ' aria-label="Select email">' +
         '<div class="email-top"><span class="pill ' + badgeClass(e.category) + '">' + escapeHtml(e.label) + '</span>' +
         '<span class="conf">' + escapeHtml(e.confidence) + '</span>' +
         (agingEmail(e) ? '<span class="aging">aging</span>' : '') +
+        (ts ? '<span class="task-tag' + (ts.overdue ? ' overdue' : '') + '">' + escapeHtml(ts.label) + '</span>' : '') +
         (sz ? '<span class="snooze-tag">snoozed ' + escapeHtml(sz) + '</span>' : '') +
         (e.sentAt ? '<span class="replied-tag">replied</span>' : '') +
         (e.handled ? '<span class="done-tag">handled</span>' : '') + '</div>' +
         '<div class="email-subj">' + escapeHtml(e.subject) + '</div>' +
-        '<div class="email-from">' + escapeHtml(e.from) + '</div></div>';
+        '<button class="sender-link" data-sender="' + escapeHtml(e.from) + '" title="Open sender bundle — all mail from this sender">' +
+        '<span class="avatar" aria-hidden="true">' + escapeHtml(senderInitial(e.from)) + '</span>' +
+        '<span class="sender-name">' + escapeHtml(e.from) + '</span></button></div>';
     }).join('');
     if (!html) {
       html = state.emails.length
@@ -229,8 +278,16 @@
     $('inbox').innerHTML = html;
     var cf = $('clearFilter');
     if (cf) cf.addEventListener('click', function () {
-      state.split = ''; state.query = ''; $('searchBox').value = '';
+      state.split = ''; state.query = ''; state.senderFilter = null; $('searchBox').value = '';
       renderDigest(); renderList();
+    });
+    Array.prototype.forEach.call($('inbox').querySelectorAll('.sender-link'), function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        state.senderFilter = btn.getAttribute('data-sender');
+        renderDigest();
+        renderList();
+      });
     });
     Array.prototype.forEach.call($('inbox').querySelectorAll('.bulk-check'), function (cb) {
       cb.addEventListener('click', function (ev) { ev.stopPropagation(); });
@@ -252,48 +309,79 @@
     var e = state.emails.filter(function (x) { return x.id === id; })[0];
     if (!e) return;
     var meterPct = { high: 95, medium: 65, low: 30 }[e.confidence] || 30;
+    var CIRC = 163.4;
+    var ts = TriagePilot.taskState(e);
+    var snippetOpts = state.snippets.map(function (s) {
+      return '<option value="' + escapeHtml(s.name) + '">' + escapeHtml(s.name) + '</option>';
+    }).join('');
+    var senderAct = TriagePilot.senderAction(e.from);
     $('detail').innerHTML =
-      '<h3>' + escapeHtml(e.subject) + '</h3>' +
-      '<div class="meta">From: ' + escapeHtml(e.from) + '</div>' +
+      '<div class="dossier" data-cat="' + e.category + '">' +
+      '<div class="dossier-head">' +
+      '<div class="dossier-titles"><p class="kicker">Case file</p><h3>' + escapeHtml(e.subject) + '</h3>' +
+      '<div class="meta">From: ' + escapeHtml(e.from) + '</div></div>' +
+      '<div class="conf-ring" title="' + escapeHtml(e.confidence) + ' confidence">' +
+      '<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="26" class="ring-bg"/>' +
+      '<circle cx="32" cy="32" r="26" class="ring-fg" stroke-dashoffset="' +
+      (CIRC * (1 - meterPct / 100)).toFixed(1) + '"/></svg>' +
+      '<span class="ring-num">' + meterPct + '</span></div>' +
+      '</div>' +
       '<div class="classif">' +
       '<div class="classif-row"><span class="pill ' + badgeClass(e.category) + '">' + escapeHtml(e.label) + '</span>' +
       '<span class="conf">' + escapeHtml(e.confidence) + ' confidence</span></div>' +
-      '<div class="meter"><i style="width:' + meterPct + '%"></i></div>' +
+      (ts ? '<p class="task-line' + (ts.overdue ? ' overdue' : '') + '"><strong>Task:</strong> ' + escapeHtml(ts.label) + '</p>' : '') +
       '<p class="reason"><strong>Why:</strong> ' + escapeHtml(e.reason) + '</p>' +
       (e.sentAt ? '<p class="sent-line">Reply sent — resolved ' + escapeHtml(new Date(e.sentAt).toLocaleString()) + '.</p>' : '') +
       '</div>' +
       '<p class="body">' + escapeHtml(e.body) + '</p>' +
-      '<div class="draft-actions">' +
+      '<div class="action-ledger">' +
+      '<div class="ledger-group"><p class="ledger-label">Triage</p><div class="ledger-row">' +
+      '<button id="handledBtn" class="action">' + (e.handled ? 'Reopen' : 'Mark handled') + ' <span class="kbd">m</span></button>' +
+      '<button id="fixLabel" class="action" title="Cycle to the next label">Wrong label? → ' + TriagePilot.LABELS[TriagePilot.nextCategory(e.category)] + '</button>' +
+      '<button id="delEmail" class="action danger">Delete</button>' +
+      '</div></div>' +
+      '<div class="ledger-group"><p class="ledger-label">Reply</p><div class="ledger-row">' +
       '<label>Tone: <select id="tone">' +
       '<option value="professional"' + (state.tone === 'professional' ? ' selected' : '') + '>Professional</option>' +
       '<option value="friendly"' + (state.tone === 'friendly' ? ' selected' : '') + '>Friendly</option>' +
       '</select></label> ' +
       '<button id="draftBtn" class="action hot">Draft reply</button>' +
       '<button id="mailtoBtn" class="action">Open in email app</button>' +
-      '<button id="handledBtn" class="action">' + (e.handled ? 'Reopen' : 'Mark handled') + ' <span class="kbd">m</span></button>' +
-      '<button id="fixLabel" class="action" title="Cycle to the next label">Wrong label? → ' + TriagePilot.LABELS[TriagePilot.nextCategory(e.category)] + '</button>' +
-      '<button id="delEmail" class="action danger">Delete</button>' +
+      '</div><div class="ledger-row snippet-row">' +
+      '<select id="snippetPick" aria-label="Choose a snippet"><option value="">Insert snippet…</option>' + snippetOpts + '</select>' +
+      '<button id="snippetInsert" class="action small">Insert</button>' +
+      '<button id="snippetSave" class="action small">Save draft as snippet</button>' +
+      '<button id="snippetDel" class="action small">Delete</button>' +
       '</div>' +
-      '<div class="snooze-actions">' +
-      '<span class="muted">Snooze:</span> ' +
+      '<textarea id="draft" rows="8" placeholder="Your draft will appear here — edit it freely."></textarea>' +
+      '<div class="ledger-row"><button id="copyBtn" class="action">Copy draft</button> ' +
+      '<button id="sentBtn" class="action"' + (e.sentAt ? ' disabled title="Already marked sent"' : '') + '>Reply sent</button> ' +
+      '<span id="copied"></span></div>' +
+      '</div>' +
+      '<div class="ledger-group"><p class="ledger-label">Sender</p><div class="ledger-row">' +
+      '<button id="senderBundle" class="action small">All from sender <span class="kbd">u</span></button> ' +
+      (senderAct === 'spam'
+        ? '<button id="unlistSender" class="action small">Unblock</button>'
+        : '<button id="blockSender" class="action small">Block <span class="kbd">b</span></button>') + ' ' +
+      (senderAct === 'trust'
+        ? '<button id="unlistSender2" class="action small">Untrust</button>'
+        : '<button id="trustSender" class="action small">Trust</button>') +
+      '</div></div>' +
+      '<div class="ledger-group"><p class="ledger-label">Snooze</p><div class="ledger-row">' +
       '<button id="sz1h" class="action small">1 hour</button> ' +
       '<button id="sz4h" class="action small">4 hours</button> ' +
       '<button id="szTomorrow" class="action small">Tomorrow</button> ' +
       (TriagePilot.isAwake(e) ? '' : '<button id="unsnooze" class="action small">Unsnooze</button>') +
+      '</div></div>' +
+      '<div class="ledger-group"><p class="ledger-label">Task</p><div class="ledger-row">' +
+      '<button id="taskToday" class="action small">Due today <span class="kbd">t</span></button>' +
+      '<button id="taskTomorrow" class="action small">Due tomorrow</button>' +
+      '<button id="taskWeek" class="action small">Due next week</button>' +
+      '<input type="date" id="taskDate" class="date-pick" aria-label="Pick a due date" title="Pick a due date">' +
+      '<button id="taskClear" class="action small"' + (ts ? '' : ' disabled') + '>Clear task</button>' +
+      '</div></div>' +
       '</div>' +
-      '<div class="sender-actions">' +
-      '<span class="muted">Sender:</span> ' +
-      (TriagePilot.senderAction(e.from) === 'spam'
-        ? '<button id="unlistSender" class="action small">Unblock</button>'
-        : '<button id="blockSender" class="action small">Block <span class="kbd">b</span></button>') + ' ' +
-      (TriagePilot.senderAction(e.from) === 'trust'
-        ? '<button id="unlistSender2" class="action small">Untrust</button>'
-        : '<button id="trustSender" class="action small">Trust</button>') +
-      '</div>' +
-      '<textarea id="draft" rows="10" placeholder="Your draft will appear here — edit it freely."></textarea>' +
-      '<button id="copyBtn" class="action">Copy draft</button> ' +
-      '<button id="sentBtn" class="action"' + (e.sentAt ? ' disabled title="Already marked sent"' : '') + '>Reply sent</button> ' +
-      '<span id="copied"></span>';
+      '</div>';
     $('tone').addEventListener('change', function (ev) { state.tone = ev.target.value; saveState(); });
     $('draftBtn').addEventListener('click', function () {
       $('draft').value = TriagePilot.draftReply(e, state.tone, state.business);
@@ -378,6 +466,62 @@
         triage(e);
         refreshAfterSender();
       });
+    });
+    // tasks (Missive-style commitments on any email)
+    function applyTask(dueMs) {
+      state.emails = TriagePilot.withTaskDue(state.emails, e.id, dueMs);
+      saveState(); renderDigest(); renderList(); selectEmail(e.id);
+    }
+    function endOfDay(offsetDays) {
+      var d = new Date();
+      d.setHours(23, 59, 0, 0);
+      return d.getTime() + offsetDays * 24 * 60 * 60 * 1000;
+    }
+    $('taskToday').addEventListener('click', function () { applyTask(endOfDay(0)); });
+    $('taskTomorrow').addEventListener('click', function () { applyTask(endOfDay(1)); });
+    $('taskWeek').addEventListener('click', function () { applyTask(endOfDay(7)); });
+    $('taskDate').addEventListener('change', function (ev) {
+      if (!ev.target.value) return;
+      var d = new Date(ev.target.value + 'T23:59:00');
+      if (!isNaN(d.getTime())) applyTask(d.getTime());
+    });
+    var tc = $('taskClear');
+    if (tc && !tc.disabled) tc.addEventListener('click', function () {
+      state.emails = TriagePilot.clearTaskDue(state.emails, e.id);
+      saveState(); renderDigest(); renderList(); selectEmail(e.id);
+    });
+    // snippets (Superhuman/Missive canned replies)
+    function snippetByName(name) {
+      return state.snippets.filter(function (s) { return s.name === name; })[0] || null;
+    }
+    $('snippetInsert').addEventListener('click', function () {
+      var pick = $('snippetPick');
+      if (!pick || !pick.value) return;
+      var s = snippetByName(pick.value);
+      if (s) $('draft').value = TriagePilot.applySnippet($('draft').value, s.text);
+    });
+    $('snippetSave').addEventListener('click', function () {
+      var text = $('draft').value.trim();
+      if (!text) { alert('Write or generate a draft first.'); return; }
+      var name = prompt('Name this snippet (e.g. "Urgent apology", "Quote follow-up"):');
+      if (!name) return;
+      state.snippets = TriagePilot.addSnippet(state.snippets, name, text);
+      saveState();
+      selectEmail(e.id); // re-render to refresh the snippet list
+    });
+    $('snippetDel').addEventListener('click', function () {
+      var pick = $('snippetPick');
+      if (!pick || !pick.value) return;
+      if (!confirm('Delete snippet "' + pick.value + '"?')) return;
+      state.snippets = TriagePilot.removeSnippet(state.snippets, pick.value);
+      saveState();
+      selectEmail(e.id);
+    });
+    // sender bundle: drop into this sender's mail
+    $('senderBundle').addEventListener('click', function () {
+      state.senderFilter = e.from;
+      renderDigest();
+      renderList();
     });
     $('delEmail').addEventListener('click', function () {
       if (!confirm('Delete this email from the inbox?')) return;
@@ -582,16 +726,52 @@
     if (b) b.click();
   }
 
-  var COMMANDS = [
+  function taskDueSelected(offsetDays) {
+    var e = selectedEmail();
+    if (!e) return;
+    var d = new Date();
+    d.setHours(23, 59, 0, 0);
+    state.emails = TriagePilot.withTaskDue(state.emails, e.id, d.getTime() + offsetDays * 24 * 60 * 60 * 1000);
+    saveState(); renderDigest(); renderList(); selectEmail(e.id);
+  }
+
+  function senderBundleSelected() {
+    var e = selectedEmail();
+    if (!e) return;
+    state.senderFilter = e.from;
+    renderDigest();
+    renderList();
+  }
+
+  function insertSnippetText(text) {
+    var d = $('draft');
+    if (!d) return;
+    d.value = TriagePilot.applySnippet(d.value, text);
+    d.focus();
+  }
+
+  var STATIC_COMMANDS = [
     { name: 'Go to: All', hint: 'split', run: function () { state.split = ''; renderSplits(); renderList(); } },
     { name: 'Go to: Focus', hint: 'split', run: function () { state.split = 'focus'; renderSplits(); renderList(); } },
     { name: 'Go to: FYI', hint: 'split', run: function () { state.split = 'fyi'; renderSplits(); renderList(); } },
     { name: 'Go to: Spam', hint: 'split', run: function () { state.split = 'spam'; renderSplits(); renderList(); } },
     { name: 'Go to: Snoozed', hint: 'split', run: function () { state.split = 'snoozed'; renderSplits(); renderList(); } },
+    { name: 'Go to: Tasks', hint: 'split', run: function () { state.split = 'tasks'; renderSplits(); renderList(); } },
     { name: 'Mark handled / reopen', hint: 'm', run: function () { toggleHandled(state.selectedId); } },
     { name: 'Snooze 1 hour', hint: 'snooze', run: function () { snoozeSelected(3600000); } },
     { name: 'Snooze 4 hours', hint: 'snooze', run: function () { snoozeSelected(4 * 3600000); } },
     { name: 'Snooze until tomorrow 9am', hint: 'snooze', run: function () { snoozeTomorrow(); } },
+    { name: 'Make task: due today', hint: 't', run: function () { taskDueSelected(0); } },
+    { name: 'Make task: due tomorrow', hint: 'task', run: function () { taskDueSelected(1); } },
+    { name: 'Make task: due next week', hint: 'task', run: function () { taskDueSelected(7); } },
+    { name: 'Clear task', hint: 'task', run: function () {
+      var e = selectedEmail();
+      if (!e) return;
+      state.emails = TriagePilot.clearTaskDue(state.emails, e.id);
+      saveState(); renderDigest(); renderList(); selectEmail(e.id);
+    } },
+    { name: 'Open sender bundle', hint: 'u', run: function () { senderBundleSelected(); } },
+    { name: 'Clear sender bundle', hint: 'sender', run: function () { state.senderFilter = null; renderDigest(); renderList(); } },
     { name: 'Label: Urgent', hint: '1', run: function () { shortcutRecategorize('urgent'); } },
     { name: 'Label: Needs reply', hint: '2', run: function () { shortcutRecategorize('reply'); } },
     { name: 'Label: FYI', hint: '3', run: function () { shortcutRecategorize('fyi'); } },
@@ -604,6 +784,19 @@
     { name: 'Sync Gmail inbox', hint: 'gmail', run: function () { if (gmailToken) gmailSync(); } },
     { name: 'Toggle keyboard shortcuts', hint: '?', run: function () { toggleKeyHelp(); } }
   ];
+
+  /* Dynamic command list: static commands + one "Insert snippet: <name>"
+   * command per saved snippet (Superhuman-style snippet access). */
+  function getCommands() {
+    var cmds = STATIC_COMMANDS.slice();
+    state.snippets.forEach(function (s) {
+      cmds.push({
+        name: 'Insert snippet: ' + s.name, hint: 'snippet',
+        run: (function (text) { return function () { insertSnippetText(text); }; })(s.text)
+      });
+    });
+    return cmds;
+  }
 
   var cmdkIndex = 0, cmdkItems = [];
 
@@ -624,7 +817,8 @@
 
   function renderCmdk(q) {
     var needle = cmdkNorm(q);
-    cmdkItems = COMMANDS.filter(function (c) {
+    var cmds = getCommands();
+    cmdkItems = cmds.filter(function (c) {
       return !needle || cmdkNorm(c.name + ' ' + c.hint).indexOf(needle) !== -1;
     });
     cmdkIndex = Math.min(cmdkIndex, Math.max(0, cmdkItems.length - 1));
@@ -687,6 +881,8 @@
       else if (k === '3') shortcutRecategorize('fyi');
       else if (k === '4') shortcutRecategorize('spam');
       else if (k === 'm' || k === 'M') toggleHandled(state.selectedId);
+      else if (k === 't' || k === 'T') taskDueSelected(0);
+      else if (k === 'u' || k === 'U') senderBundleSelected();
       else if (k === 'b' || k === 'B') {
         var b = document.getElementById('blockSender');
         if (b) b.click(); else handled = false;

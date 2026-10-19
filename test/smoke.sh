@@ -271,6 +271,43 @@ else
 fi
 
 
+# 36: classifier exports the v2 API (tasks, sender bundles, snippets)
+if node -e "
+const T=require('./js/classifier.js');
+['senderKeys','emailsFromSender','taskState','withTaskDue','clearTaskDue','taskCount','addSnippet','removeSnippet','applySnippet'].forEach(f=>{if(typeof T[f]!=='function')process.exit(1)});
+" 2>/dev/null; then
+  ok "classifier exports tasks + sender-bundle + snippet API"
+else
+  bad "classifier missing v2 API"
+fi
+
+# 37: UI wiring — tasks, sender bundle, snippets
+missing=""
+for id in senderBanner senderClear snippetPick taskDate taskToday taskTomorrow taskWeek taskClear senderBundle; do
+  grep -q "id=\"$id\"" index.html js/app.js || missing="$missing #$id"
+done
+grep -q 'id="split-tasks"' index.html || missing="$missing #split-tasks"
+for n in taskDueSelected senderBundleSelected insertSnippetText getCommands renderSenderBanner senderInitial withTaskDue clearTaskDue taskState emailsFromSender addSnippet removeSnippet applySnippet; do
+  grep -q "$n" js/app.js || missing="$missing $n"
+done
+grep -q 'data-split="tasks"' index.html || missing="$missing tasks-tab"
+if [ -z "$missing" ]; then ok "app.js wires tasks, sender bundles, snippets"; else bad "missing wiring:$missing"; fi
+
+# 38: css styles the v2 surfaces (no border-radius anywhere)
+missing=""
+for c in task-tag sender-banner sender-link avatar dossier conf-ring ring-fg action-ledger ledger-group ledger-label task-line date-pick; do
+  grep -q "\\.$c" css/style.css || missing="$missing css:.$c"
+done
+if grep "border-radius" css/style.css | grep -qv "pill::before"; then missing="$missing border-radius-present"; fi
+if [ -z "$missing" ]; then ok "css styles v2 surfaces, zero border-radius"; else bad "missing css:$missing"; fi
+
+# 39: v2 audit doc present, covers all three competitors
+if grep -q "Superhuman" REDESIGN-AUDIT.md && grep -q "Shortwave" REDESIGN-AUDIT.md && grep -q "Missive" REDESIGN-AUDIT.md; then
+  ok "REDESIGN-AUDIT.md covers Superhuman + Shortwave + Missive"
+else
+  bad "REDESIGN-AUDIT.md missing competitor coverage"
+fi
+
 echo ""
 echo "smoke: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

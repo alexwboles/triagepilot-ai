@@ -394,6 +394,57 @@ flow('docs: GMAIL-SETUP.md covers consent screen, scopes, test users, secret war
   }
 });
 
+// FLOW 23: tasks — due dates, overdue detection, split filter, purity
+flow('tasks: withTaskDue/clearTaskDue are pure, taskState labels, applySplit("tasks")', () => {
+  const day = 24 * 3600000;
+  const now = 1700000000000; // fixed clock: Tue Nov 14 2023
+  const inbox = [{ id: 'a' }, { id: 'b' }];
+  const withDue = T.withTaskDue(inbox, 'a', now + day);
+  assert.strictEqual(inbox[0].taskDue, undefined, 'input untouched');
+  assert.strictEqual(T.taskState({}), null, 'no due -> null');
+  const st = T.taskState(withDue[0], now);
+  assert.ok(st && !st.overdue && st.label === 'due tomorrow', 'label: ' + (st && st.label));
+  assert.strictEqual(T.taskState({ taskDue: now - day }, now).label, 'overdue');
+  assert.strictEqual(T.taskState({ taskDue: now - day }, now).overdue, true);
+  assert.strictEqual(T.taskState({ taskDue: now + 3600000 }, now).label, 'due today');
+  assert.strictEqual(T.taskCount(withDue), 1);
+  const only = T.applySplit(withDue, 'tasks');
+  assert.deepStrictEqual(only.map((e) => e.id), ['a'], 'tasks split isolates');
+  const cleared = T.clearTaskDue(withDue, 'a');
+  assert.strictEqual(T.taskState(cleared[0]), null, 'cleared');
+  assert.strictEqual(T.taskCount(cleared), 0);
+});
+
+// FLOW 24: sender bundles — address variants group together
+flow('sender bundles: emailsFromSender groups "Jane <j@x.com>" with "j@x.com"', () => {
+  const inbox = [
+    { id: 'm1', from: 'Jane Doe <jane@x.com>' },
+    { id: 'm2', from: 'jane@x.com' },
+    { id: 'm3', from: 'Bob <bob@y.com>' }
+  ];
+  const bundle = T.emailsFromSender(inbox, 'Jane <jane@x.com>');
+  assert.deepStrictEqual(bundle.map((e) => e.id), ['m1', 'm2']);
+  assert.deepStrictEqual(T.emailsFromSender(inbox, '').length, 0, 'empty sender -> empty bundle');
+  assert.deepStrictEqual(T.emailsFromSender(inbox, 'nobody@z.test').length, 0, 'unknown sender -> empty bundle');
+});
+
+// FLOW 25: snippets — add/replace/remove are pure, applySnippet appends
+flow('snippets: add/replace/remove are pure; applySnippet fills or appends', () => {
+  let s = T.addSnippet([], 'Urgent apology', 'I am very sorry about this.');
+  assert.strictEqual(s.length, 1);
+  s = T.addSnippet(s, 'urgent APOLOGY', 'Replaced text.'); // same name, new case -> replace
+  assert.strictEqual(s.length, 1, 'replaces same-name snippet');
+  assert.strictEqual(s[0].text, 'Replaced text.');
+  s = T.addSnippet(s, '', 'nope');
+  s = T.addSnippet(s, 'blank', '');
+  assert.strictEqual(s.length, 1, 'empty name/text ignored');
+  assert.strictEqual(T.applySnippet('', 'Hello'), 'Hello', 'empty draft -> snippet');
+  assert.strictEqual(T.applySnippet('  \n ', 'Hello'), 'Hello', 'whitespace draft -> snippet');
+  assert.strictEqual(T.applySnippet('Hi there', 'Bye'), 'Hi there\n\nBye', 'appends with blank line');
+  s = T.removeSnippet(s, 'URGENT APOLOGY');
+  assert.strictEqual(s.length, 0, 'case-insensitive remove');
+});
+
 (async () => {
   for (const [name, fn] of queue) {
     await fn();

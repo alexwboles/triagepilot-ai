@@ -33,6 +33,7 @@
       <button class="split" data-split="fyi" role="tab">FYI <b id="split-fyi">0</b></button>
       <button class="split" data-split="spam" role="tab">Spam <b id="split-spam">0</b></button>
       <button class="split" data-split="snoozed" role="tab">Snoozed <b id="split-snoozed">0</b></button>
+      <button class="split" data-split="tasks" role="tab">Tasks <b id="split-tasks">0</b></button>
       <span class="zero-meter" id="zeroMeter" title="Emails left to reach inbox zero"></span>
     </div>
     <div class="queue-tools">
@@ -40,6 +41,7 @@
       <label class="open-only"><input type="checkbox" id="hideHandled"> Open only</label>
       <button id="clearSpam" class="btn-ghost small">Clear spam</button>
     </div>
+    <div id="senderBanner" class="sender-banner hidden" aria-live="polite"></div>
     <div id="bulkBar" class="bulk-bar" style="display:none" aria-live="polite"></div>
     <div id="learnNote" class="learn-note"></div>
     <div id="senderNote" class="sender-note"></div>
@@ -49,6 +51,8 @@
         <tr><td><span class="kbd">j</span> / <span class="kbd">k</span></td><td>Next / previous email</td></tr>
         <tr><td><span class="kbd">1</span>–<span class="kbd">4</span></td><td>Label: Urgent / Needs reply / FYI / Spam (teaches the classifier)</td></tr>
         <tr><td><span class="kbd">m</span></td><td>Mark handled / reopen</td></tr>
+        <tr><td><span class="kbd">t</span></td><td>Make a task due today</td></tr>
+        <tr><td><span class="kbd">u</span></td><td>Open sender bundle (all mail from this sender)</td></tr>
         <tr><td><span class="kbd">b</span></td><td>Block sender (future mail auto-files as spam)</td></tr>
         <tr><td><span class="kbd">d</span></td><td>Delete email</td></tr>
         <tr><td><span class="kbd">Ctrl</span>/<span class="kbd">⌘</span> + <span class="kbd">K</span></td><td>Command palette — run any action</td></tr>

@@ -239,9 +239,13 @@
   }
 
   /** Superhuman-style split-inbox filter: '' (all awake), focus (urgent+reply),
-      fyi, spam, or snoozed (only sleeping emails). */
+      fyi, spam, snoozed (only sleeping emails), or tasks (anything carrying a
+      due date — a commitment is a commitment, even when snoozed). */
   function applySplit(emails, split) {
     var list = emails || [];
+    if (split === 'tasks') {
+      return list.filter(function (e) { return !!taskState(e); });
+    }
     if (split === 'snoozed') {
       return list.filter(function (e) { return !isAwake(e); });
     }
@@ -479,6 +483,16 @@
     return senderMemory[key] || null;
   }
 
+  /** Shortwave-style sender bundle: every email in the inbox from this sender
+   * (matched on the address key, so "Jane <j@x.com>" and "j@x.com" group). */
+  function emailsFromSender(emails, from) {
+    var key = senderKeys(from)[0] || '';
+    if (!key) return [];
+    return (emails || []).filter(function (e) {
+      return senderKeys(e.from)[0] === key;
+    });
+  }
+
   /**
    * Remember that the user files this sender's mail as `category`.
    * Returns the stored key, or null when the category/address is invalid.
@@ -534,6 +548,101 @@
   /** How many emails in the inbox have a reply sent. */
   function sentCount(emails) {
     return (emails || []).filter(function (e) { return !!e.sentAt; }).length;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tasks (Missive-style: any email can become a task with a due date).
+  // Pure helpers; the UI stores `taskDue` (epoch ms) on the email record.
+  // ---------------------------------------------------------------------------
+
+  function startOfDay(ms) {
+    var d = new Date(ms);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }
+
+  /**
+   * Task state for an email. Returns null when it carries no task; otherwise
+   * { due, overdue, label } with label like "overdue", "due today",
+   * "due tomorrow", "due Mon" or "due Mar 4".
+   */
+  function taskState(email, now) {
+    var due = Number((email && email.taskDue) || 0);
+    if (!due) return null;
+    var t = now == null ? Date.now() : now;
+    var today = startOfDay(t);
+    var dday = startOfDay(due);
+    var dayMs = 24 * 60 * 60 * 1000;
+    var label;
+    if (dday < today) label = 'overdue';
+    else if (dday === today) label = 'due today';
+    else if (dday === today + dayMs) label = 'due tomorrow';
+    else if (dday < today + 7 * dayMs) {
+      label = 'due ' + ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(due).getDay()];
+    } else {
+      var m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      label = 'due ' + m[new Date(due).getMonth()] + ' ' + new Date(due).getDate();
+    }
+    return { due: due, overdue: dday < today, label: label };
+  }
+
+  /** Pure: set a task due date on one email. Returns a NEW array. */
+  function withTaskDue(emails, id, dueMs) {
+    return (emails || []).map(function (e) {
+      if (e.id !== id) return e;
+      var c = {};
+      for (var k in e) c[k] = e[k];
+      c.taskDue = dueMs;
+      return c;
+    });
+  }
+
+  /** Pure: clear the task from one email. Returns a NEW array. */
+  function clearTaskDue(emails, id) {
+    return (emails || []).map(function (e) {
+      if (e.id !== id) return e;
+      var c = {};
+      for (var k in e) c[k] = e[k];
+      delete c.taskDue;
+      return c;
+    });
+  }
+
+  /** How many emails carry a task (open + overdue tracked by the UI). */
+  function taskCount(emails) {
+    return (emails || []).filter(function (e) { return !!taskState(e); }).length;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Snippets (Superhuman/Missive canned replies). Pure list ops; the UI
+  // persists the list in localStorage. A snippet is {name, text}.
+  // ---------------------------------------------------------------------------
+
+  /** Pure: add (or replace) a named snippet. Returns a NEW list. */
+  function addSnippet(snippets, name, text) {
+    var n = String(name == null ? '' : name).trim().slice(0, 60);
+    var t = String(text == null ? '' : text).trim().slice(0, 4000);
+    if (!n || !t) return (snippets || []).slice();
+    var kept = (snippets || []).filter(function (s) {
+      return s && s.name.toLowerCase() !== n.toLowerCase();
+    });
+    kept.push({ name: n, text: t });
+    return kept.slice(0, 50);
+  }
+
+  /** Pure: remove a snippet by name (case-insensitive). Returns a NEW list. */
+  function removeSnippet(snippets, name) {
+    var n = String(name == null ? '' : name).trim().toLowerCase();
+    return (snippets || []).filter(function (s) { return s && s.name.toLowerCase() !== n; });
+  }
+
+  /** Insert a snippet's text into the draft (appends, keeps what's typed). */
+  function applySnippet(draft, text) {
+    var d = String(draft == null ? '' : draft);
+    var t = String(text == null ? '' : text);
+    if (!d.trim()) return t;
+    if (!t) return d;
+    return d.replace(/\s+$/, '') + '\n\n' + t;
   }
 
   // ---------------------------------------------------------------------------
@@ -595,6 +704,8 @@
     listSender: listSender,
     unlistSender: unlistSender,
     setSenderLists: setSenderLists,
+    senderKeys: senderKeys,
+    emailsFromSender: emailsFromSender,
     getSenderLists: getSenderLists,
     resetSenderLists: resetSenderLists,
     memoryFor: memoryFor,
@@ -605,6 +716,13 @@
     classifyWithSender: classifyWithSender,
     markSent: markSent,
     sentCount: sentCount,
+    taskState: taskState,
+    withTaskDue: withTaskDue,
+    clearTaskDue: clearTaskDue,
+    taskCount: taskCount,
+    addSnippet: addSnippet,
+    removeSnippet: removeSnippet,
+    applySnippet: applySnippet,
     bulkRemove: bulkRemove,
     bulkSetHandled: bulkSetHandled,
     bulkRelabel: bulkRelabel,
