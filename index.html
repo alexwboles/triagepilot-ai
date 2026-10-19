@@ -72,10 +72,30 @@
       <button id="addBtn" class="primary">Triage this email</button>
     </div>
     <p class="privacy"><strong>Private by design.</strong> TriagePilot runs 100% in your browser. Emails never leave this page — no servers, no tracking, no accounts.</p>
+
+    <div id="gmailBox" class="gmail-box" aria-label="Gmail connection">
+      <div class="pane-head"><p class="kicker">Gmail</p><h2>Real inbox</h2><p class="pane-sub">Triage live mail, not pastes.</p></div>
+      <div id="gmailSetup">
+        <p class="muted">Not connected yet. <a href="docs/GMAIL-SETUP.md" target="_blank" rel="noopener">Follow the 10-minute setup guide</a> — free OAuth 2.0, read-only scope, your own Google Cloud client ID.</p>
+      </div>
+      <div id="gmailConnectWrap" class="hidden">
+        <button id="gmailConnect" class="primary">Connect Gmail</button>
+        <p class="muted small-note">Read-only access. The access token lives in this tab's memory only — never stored, never sent anywhere.</p>
+      </div>
+      <div id="gmailSyncWrap" class="hidden">
+        <div class="gmail-row">
+          <button id="gmailSync" class="action hot">Sync inbox</button>
+          <button id="gmailDisconnect" class="btn-ghost small">Disconnect</button>
+        </div>
+        <p id="gmailStatus" class="gmail-status muted" aria-live="polite"></p>
+      </div>
+    </div>
   </aside>
 </main>
 
 <script src="js/classifier.js"></script>
+<script src="config/gmail.local.js" onerror="void 0"></script>
+<script src="js/gmail.js"></script>
 <script src="js/app.js"></script>
 <div id="cmdk" class="cmdk hidden" role="dialog" aria-label="Command palette">
   <div class="cmdk-box">

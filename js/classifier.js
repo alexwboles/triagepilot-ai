@@ -427,7 +427,12 @@
     return key;
   }
 
-  /** Classify with sender lists honored. Blocked → spam; trusted can never be spam. */
+  /** Classify with sender lists honored. Blocked → spam; trusted can never be spam.
+   * Per-sender memory (the triager learns the category YOU assign to a
+   * sender's mail) is honored next: it wins over the heuristic score, but
+   * never resurrects a blocked sender out of spam, and a trusted sender
+   * still can never be filed as spam by memory either.
+   */
   function classifyWithSender(subject, body, from) {
     var r = classify(subject, body);
     var action = senderAction(from);
@@ -437,6 +442,21 @@
         reason: 'Sender is on your blocklist — auto-filed as spam.', scores: r.scores
       };
     }
+    var mem = memoryFor(from);
+    if (mem && mem !== r.category) {
+      if (mem === 'spam' && action === 'trust') {
+        return {
+          category: 'reply', label: LABELS.reply, confidence: 'medium',
+          reason: 'Sender is on your trustlist — kept out of spam. ' + r.reason, scores: r.scores
+        };
+      }
+      return {
+        category: mem, label: LABELS[mem], confidence: 'medium',
+        reason: 'Filed as ' + LABELS[mem] + ' — you usually file mail from this sender as ' +
+          LABELS[mem] + '. ' + r.reason,
+        scores: r.scores
+      };
+    }
     if (action === 'trust' && r.category === 'spam') {
       r = {
         category: 'reply', label: LABELS.reply, confidence: 'medium',
@@ -444,6 +464,76 @@
       };
     }
     return r;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Per-sender memory: the triager learns from YOUR corrections. When you
+  // relabel an email, the sender's address is remembered with the category
+  // you chose, so future mail from that sender files the same way.
+  // ---------------------------------------------------------------------------
+  var senderMemory = {};
+
+  /** The remembered category for a sender string, or null. */
+  function memoryFor(from) {
+    var key = senderKeys(from)[0] || '';
+    return senderMemory[key] || null;
+  }
+
+  /**
+   * Remember that the user files this sender's mail as `category`.
+   * Returns the stored key, or null when the category/address is invalid.
+   */
+  function rememberSender(category, from) {
+    if (CATEGORIES.indexOf(category) === -1) return null;
+    var key = senderKeys(from)[0] || '';
+    if (!key) return null;
+    senderMemory[key] = category;
+    return key;
+  }
+
+  function setSenderMemory(map) {
+    senderMemory = {};
+    if (map && typeof map === 'object') {
+      Object.keys(map).forEach(function (k) {
+        if (CATEGORIES.indexOf(map[k]) !== -1 && typeof k === 'string' && k) {
+          senderMemory[k.toLowerCase()] = map[k];
+        }
+      });
+    }
+  }
+
+  function getSenderMemory() {
+    var copy = {};
+    Object.keys(senderMemory).forEach(function (k) { copy[k] = senderMemory[k]; });
+    return copy;
+  }
+
+  function resetSenderMemory() { senderMemory = {}; }
+
+  // ---------------------------------------------------------------------------
+  // Sent tracking: which emails the user actually replied to (the "loop"
+  // closer — a sent reply resolves the email).
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Pure: mark one email as replied. Sets sentAt and handled=true.
+   * Returns a NEW array; the input is untouched.
+   */
+  function markSent(emails, id, now) {
+    var ts = now == null ? Date.now() : now;
+    return (emails || []).map(function (e) {
+      if (e.id !== id) return e;
+      var c = {};
+      for (var k in e) c[k] = e[k];
+      c.handled = true;
+      c.sentAt = ts;
+      return c;
+    });
+  }
+
+  /** How many emails in the inbox have a reply sent. */
+  function sentCount(emails) {
+    return (emails || []).filter(function (e) { return !!e.sentAt; }).length;
   }
 
   // ---------------------------------------------------------------------------
@@ -507,7 +597,14 @@
     setSenderLists: setSenderLists,
     getSenderLists: getSenderLists,
     resetSenderLists: resetSenderLists,
+    memoryFor: memoryFor,
+    rememberSender: rememberSender,
+    setSenderMemory: setSenderMemory,
+    getSenderMemory: getSenderMemory,
+    resetSenderMemory: resetSenderMemory,
     classifyWithSender: classifyWithSender,
+    markSent: markSent,
+    sentCount: sentCount,
     bulkRemove: bulkRemove,
     bulkSetHandled: bulkSetHandled,
     bulkRelabel: bulkRelabel,

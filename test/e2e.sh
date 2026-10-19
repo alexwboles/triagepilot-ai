@@ -9,7 +9,8 @@ const T = require('./js/classifier.js');
 const samples = require('./data/samples.json');
 
 let n = 0;
-const flow = (name, fn) => { fn(); n++; console.log('ok   - ' + name); };
+const queue = [];
+const flow = (name, fn) => { queue.push([name, fn]); };
 
 // FLOW 1: full inbox triage produces a sane digest
 flow('digest: 10 emails triaged, counts add up, all 4 categories present', () => {
@@ -231,5 +232,174 @@ flow('split inbox: focus = urgent+reply, fyi/spam by category, snoozed separate'
   assert.ok(!T.applySplit(sleeping, 'focus').some((e) => e.id === 'e1'));
 });
 
-console.log('\ne2e: ' + n + ' flows passed');
+// FLOW 17: per-sender memory — corrections teach where a SENDER's mail files
+flow('sender memory: rememberSender steers classifyWithSender', () => {
+  T.resetSenderLists();
+  T.resetSenderMemory();
+  const from = 'Carol Dent <carol@dent-repairs.com>';
+  // urgent-looking mail before any memory
+  const before = T.classifyWithSender('Pipe burst', 'Water everywhere, emergency, come ASAP!', from);
+  assert.strictEqual(before.category, 'urgent');
+  // user corrects it to FYI -> memory records the sender
+  assert.strictEqual(T.rememberSender('fyi', from), 'carol@dent-repairs.com');
+  const after = T.classifyWithSender('Pipe burst', 'Water everywhere, emergency, come ASAP!', from);
+  assert.strictEqual(after.category, 'fyi', 'memory steers to the user-chosen category');
+  assert.ok(/usually file/i.test(after.reason), 'reason cites per-sender memory: ' + after.reason);
+  // memory does not apply to other senders
+  const other = T.classifyWithSender('Pipe burst', 'Water everywhere, emergency, come ASAP!', 'Zed <zed@other.com>');
+  assert.strictEqual(other.category, 'urgent', 'other senders unaffected');
+  // blocklist still wins over memory (explicit > learned)
+  T.listSender('blocked', from);
+  const blocked = T.classifyWithSender('Hi', 'Just a note.', from);
+  assert.strictEqual(blocked.category, 'spam', 'blocklist beats memory');
+  T.unlistSender(from);
+  // trusted sender remembered as spam stays out of spam
+  T.listSender('trusted', 'Penpal <pal@pen.com>');
+  T.rememberSender('spam', 'Penpal <pal@pen.com>');
+  const trusted = T.classifyWithSender('Prize', 'You won the lottery, claim your prize!', 'Penpal <pal@pen.com>');
+  assert.notStrictEqual(trusted.category, 'spam', 'trust rescues even memory-spam');
+  // persistence round-trip
+  T.setSenderMemory({ 'a@x.com': 'urgent', 'bad': 'nope', '': 'reply' });
+  assert.deepStrictEqual(T.getSenderMemory(), { 'a@x.com': 'urgent' });
+  T.resetSenderMemory();
+  assert.deepStrictEqual(T.getSenderMemory(), {});
+  T.resetSenderLists();
+});
+
+// FLOW 18: sent tracking — markSent resolves the email, sentCount counts
+flow('sent tracking: markSent sets sentAt+handled, pure; sentCount counts', () => {
+  const inbox = [
+    { id: 'm1', handled: false },
+    { id: 'm2', handled: false }
+  ];
+  const out = T.markSent(inbox, 'm1', 1234567890);
+  assert.strictEqual(out[0].handled, true, 'sent email is handled');
+  assert.strictEqual(out[0].sentAt, 1234567890, 'sentAt stamped');
+  assert.strictEqual(out[1].handled, false, 'other email untouched');
+  assert.strictEqual(inbox[0].handled, false, 'input array untouched');
+  assert.strictEqual(T.sentCount(out), 1);
+  assert.strictEqual(T.sentCount(inbox), 0);
+  assert.strictEqual(T.markSent(inbox, 'nope', 1).length, 2, 'unknown id leaves all');
+});
+
+// FLOW 19: Gmail module loads in node, no real credentials needed
+flow('gmail module: loads in node, read-only scope, no hardcoded secrets', () => {
+  const G = require('./js/gmail.js');
+  for (const f of ['getConfig', 'isConfigured', 'requestAccessToken', 'revokeToken',
+    'listRecentMessages', 'getMessageFull', 'parseGmailMessage', 'mapGmailMessage',
+    'extractBody', 'stripHtml', 'b64urlDecode', 'dedupByGmailId', 'syncInbox']) {
+    assert.strictEqual(typeof G[f], 'function', 'gmail.js exports ' + f);
+  }
+  assert.strictEqual(G.GMAIL_SCOPE, 'https://www.googleapis.com/auth/gmail.readonly');
+  assert.strictEqual(G.isConfigured(), false, 'unconfigured without a client ID');
+  globalThis.TRIAGEPILOT_GMAIL = { clientId: ' test-id.apps.googleusercontent.com ' };
+  assert.strictEqual(G.isConfigured(), true, 'configured once a client ID is supplied');
+  assert.deepStrictEqual(G.getConfig(), { clientId: 'test-id.apps.googleusercontent.com' });
+  delete globalThis.TRIAGEPILOT_GMAIL;
+});
+
+// FLOW 20: Gmail parsing — headers, plain/html bodies, mapping to triage shape
+flow('gmail parsing: headers + multipart body -> triage-ready email', async () => {
+  const G = require('./js/gmail.js');
+  const b64u = (s) => Buffer.from(s, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const full = {
+    id: 'abc123', threadId: 't9', internalDate: '1760890000000', snippet: 'snip…',
+    payload: {
+      headers: [
+        { name: 'From', value: 'Jane Doe <jane@plumbco.com>' },
+        { name: 'Subject', value: 'Quote request' },
+        { name: 'Date', value: 'Mon, 19 Oct 2026 10:00:00 -0400' }
+      ],
+      mimeType: 'multipart/alternative',
+      parts: [
+        { mimeType: 'text/plain', body: { data: b64u('Hi, how much for a water heater install? Thanks!') } },
+        { mimeType: 'text/html', body: { data: b64u('<p>Hi, <b>how much</b> for a water heater install?</p>') } }
+      ]
+    }
+  };
+  const parsed = G.parseGmailMessage(full);
+  assert.strictEqual(parsed.from, 'Jane Doe <jane@plumbco.com>');
+  assert.strictEqual(parsed.subject, 'Quote request');
+  assert.strictEqual(parsed.receivedAt, 1760890000000);
+  assert.ok(parsed.body.includes('how much for a water heater install'), 'text/plain preferred');
+  assert.ok(!parsed.body.includes('<b>'), 'no raw HTML in body');
+  // html-only fallback
+  const htmlOnly = { id: 'h1', payload: { headers: [{ name: 'From', value: 'x@y.z' }], parts: [{ mimeType: 'text/html', body: { data: b64u('<div>Hello<br>world</div>') } }] } };
+  assert.ok(G.parseGmailMessage(htmlOnly).body.includes('Hello'), 'html stripped to text');
+  // mapping to the triage shape
+  const email = G.mapGmailMessage(parsed);
+  assert.strictEqual(email.id, 'gmail:abc123');
+  assert.strictEqual(email.gmailId, 'abc123');
+  assert.strictEqual(email.handled, false);
+  // the triage classifier accepts the mapped shape
+  const r = T.classifyWithSender(email.subject, email.body, email.from);
+  assert.strictEqual(r.category, 'reply', 'quote request triages as needs-reply');
+});
+
+// FLOW 21: Gmail sync with a MOCKED fetch — no real Google credentials
+flow('gmail sync (mocked): list -> fetch -> map, newest-first, dedupe', async () => {
+  const G = require('./js/gmail.js');
+  const b64u = (s) => Buffer.from(s, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const mkMsg = (id, subject, body) => ({
+    id, threadId: 't-' + id, internalDate: '1760890000000', snippet: '',
+    payload: {
+      headers: [
+        { name: 'From', value: 'Sender <s@example.com>' },
+        { name: 'Subject', value: subject }
+      ],
+      parts: [{ mimeType: 'text/plain', body: { data: b64u(body) } }]
+    }
+  });
+  const store = {
+    m1: mkMsg('m1', 'Urgent: flooding', 'Water everywhere, emergency ASAP!'),
+    m2: mkMsg('m2', 'Monthly newsletter', 'Our October newsletter is here. Unsubscribe anytime.')
+  };
+  const calls = [];
+  const mockFetch = (url, opts) => {
+    calls.push(url);
+    assert.ok((opts.headers.Authorization || '').startsWith('Bearer '), 'auth header sent');
+    let data;
+    if (url.includes('/users/me/messages?')) data = { messages: [{ id: 'm1', threadId: 't-m1' }, { id: 'm2', threadId: 't-m2' }] };
+    else if (url.includes('/messages/m1')) data = store.m1;
+    else if (url.includes('/messages/m2')) data = store.m2;
+    else throw new Error('unexpected url: ' + url);
+    return Promise.resolve({ ok: true, json: () => Promise.resolve(data), text: () => Promise.resolve('') });
+  };
+  const emails = await G.syncInbox('fake-token', { maxResults: 25 }, mockFetch);
+  assert.strictEqual(emails.length, 2);
+  assert.strictEqual(emails[0].id, 'gmail:m1', 'newest-first order preserved');
+  assert.strictEqual(emails[1].subject, 'Monthly newsletter');
+  // triage applies to synced mail
+  const r0 = T.classifyWithSender(emails[0].subject, emails[0].body, emails[0].from);
+  assert.strictEqual(r0.category, 'urgent');
+  const r1 = T.classifyWithSender(emails[1].subject, emails[1].body, emails[1].from);
+  assert.strictEqual(r1.category, 'fyi', 'newsletter triages as FYI');
+  // dedupe: m1 already in the inbox
+  const fresh = G.dedupByGmailId([{ gmailId: 'm1' }], emails);
+  assert.deepStrictEqual(fresh.map((e) => e.id), ['gmail:m2']);
+  // API errors surface with status
+  const badFetch = () => Promise.resolve({ ok: false, status: 401, text: () => Promise.resolve('Invalid credentials') });
+  await assert.rejects(G.listRecentMessages('bad', {}, badFetch), /401/);
+  await G.revokeToken('tok', (u) => { assert.ok(u.includes('oauth2.googleapis.com/revoke'), 'revoke endpoint'); return Promise.resolve({}); });
+});
+
+// FLOW 22: setup doc covers the whole OAuth flow, warns about the secret
+flow('docs: GMAIL-SETUP.md covers consent screen, scopes, test users, secret warning', () => {
+  const fs = require('fs');
+  const doc = fs.readFileSync('./docs/GMAIL-SETUP.md', 'utf8').replace(/[*_`#]/g, '').replace(/\s+/g, ' ').toLowerCase();
+  for (const needle of ['OAuth consent screen', 'gmail.readonly', 'Test users',
+    'Authorized JavaScript origins', 'gmail.local.js', 'client secret',
+    'never written to', 'revoke']) {
+    assert.ok(doc.includes(needle.toLowerCase()), 'doc should mention: ' + needle);
+  }
+});
+
+(async () => {
+  for (const [name, fn] of queue) {
+    await fn();
+    n++;
+    console.log('ok   - ' + name);
+  }
+  console.log('\ne2e: ' + n + ' flows passed');
+})().catch((err) => { console.error(err); process.exit(1); });
 EOF

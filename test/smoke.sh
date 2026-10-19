@@ -194,6 +194,83 @@ done
 if [ -z "$missing" ]; then ok "app.js wires bulk actions, snooze, sender lists"; else bad "missing wiring:$missing"; fi
 
 
+# 26: expansion files exist
+for f in js/gmail.js config/gmail.local.example.js docs/GMAIL-SETUP.md .gitignore; do
+  if [ -f "$f" ]; then ok "file exists: $f"; else bad "missing file: $f"; fi
+done
+
+# 27: gmail.js syntax valid
+if node --check js/gmail.js >/dev/null 2>&1; then ok "syntax valid: js/gmail.js"; else bad "syntax error: js/gmail.js"; fi
+
+# 28: gmail.js loads in node with the full API + read-only scope
+if node -e "
+const G=require('./js/gmail.js');
+['getConfig','isConfigured','requestAccessToken','revokeToken','listRecentMessages','getMessageFull','parseGmailMessage','mapGmailMessage','extractBody','stripHtml','dedupByGmailId','syncInbox'].forEach(f=>{if(typeof G[f]!=='function')process.exit(1)});
+if(G.GMAIL_SCOPE!=='https://www.googleapis.com/auth/gmail.readonly')process.exit(1);
+" 2>/dev/null; then
+  ok "gmail.js exports OAuth + REST + parsing API, read-only scope"
+else
+  bad "gmail.js API broken"
+fi
+
+# 29: no hardcoded credentials anywhere in the app
+leak=""
+# a plausible real Google client ID (digits-id.apps.googleusercontent.com), not the YOUR_CLIENT_ID placeholder
+grep -qE "[0-9]{8,}-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com" js/gmail.js js/app.js js/classifier.js config/gmail.local.example.js && leak="$leak real-client-id"
+grep -qiE "client_secret|AIza[0-9A-Za-z_-]{20}" js/gmail.js js/app.js js/classifier.js && leak="$leak js:secret-pattern"
+if [ -z "$leak" ]; then ok "no hardcoded credentials in shipped JS"; else bad "credential leak:$leak"; fi
+
+# 30: example config is a placeholder; the real local config is never committed
+missing=""
+grep -q "YOUR_CLIENT_ID" config/gmail.local.example.js || missing="$missing example:placeholder"
+[ -f "config/gmail.local.js" ] && missing="$missing real-config-committed"
+grep -q "config/gmail.local.js" .gitignore || missing="$missing gitignore"
+if [ -z "$missing" ]; then ok "config template is a placeholder, local config gitignored + absent"; else bad "config problem:$missing"; fi
+
+# 31: index.html — Gmail box ids + script tags
+missing=""
+for id in gmailBox gmailSetup gmailConnectWrap gmailConnect gmailSyncWrap gmailSync gmailDisconnect gmailStatus; do
+  grep -q "id=\"$id\"" index.html || missing="$missing #$id"
+done
+grep -q 'src="js/gmail.js"' index.html || missing="$missing gmail.js-script"
+grep -q 'src="config/gmail.local.js"' index.html || missing="$missing config-script"
+if [ -z "$missing" ]; then ok "index.html wires the Gmail box + module scripts"; else bad "missing wiring:$missing"; fi
+
+# 32: css — gmail + sent-tracking styles
+missing=""
+for c in gmail-box gmail-row gmail-status sent-line replied-tag; do
+  grep -q "\.$c" css/style.css || missing="$missing css:.$c"
+done
+if [ -z "$missing" ]; then ok "css styles the Gmail box + sent tracking"; else bad "missing css:$missing"; fi
+
+# 33: app.js — Gmail flow + sent tracking + sender-memory teaching wired
+missing=""
+for n in gmailToken gmailConfigured initGmail gmailSync renderGmailBox markSent sentBtn rememberSender teachCorrection revokeToken; do
+  grep -q "$n" js/app.js || missing="$missing $n"
+done
+if [ -z "$missing" ]; then ok "app.js wires Gmail connect/sync, sent tracking, sender memory"; else bad "missing wiring:$missing"; fi
+
+# 34: classifier exports per-sender memory + sent tracking API
+if node -e "
+const T=require('./js/classifier.js');
+['memoryFor','rememberSender','setSenderMemory','getSenderMemory','resetSenderMemory','markSent','sentCount'].forEach(f=>{if(typeof T[f]!=='function')process.exit(1)});
+" 2>/dev/null; then
+  ok "classifier exports sender-memory + sent-tracking API"
+else
+  bad "classifier missing memory/sent API"
+fi
+
+# 35: gmail local config never read as a secret — getConfig only returns a clientId
+if node -e "
+const G=require('./js/gmail.js');
+if(G.getConfig()!==null)process.exit(1); // nothing configured in node
+" 2>/dev/null; then
+  ok "gmail.getConfig is null without a user-supplied config"
+else
+  bad "gmail.getConfig should be null when unconfigured"
+fi
+
+
 echo ""
 echo "smoke: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

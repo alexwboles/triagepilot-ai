@@ -24,7 +24,8 @@
       localStorage.setItem(LS_KEY, JSON.stringify({
         emails: state.emails, tone: state.tone, business: state.business,
         learned: TriagePilot.getLearnedRules(),
-        senders: TriagePilot.getSenderLists()
+        senders: TriagePilot.getSenderLists(),
+        senderMemory: TriagePilot.getSenderMemory()
       }));
     } catch (e) { /* storage unavailable */ }
   }
@@ -42,6 +43,7 @@
         if (s.business) state.business = s.business;
         if (s.learned) { state.learned = s.learned; TriagePilot.setLearnedRules(s.learned); }
         if (s.senders) TriagePilot.setSenderLists(s.senders);
+        if (s.senderMemory) TriagePilot.setSenderMemory(s.senderMemory);
         return true;
       }
     } catch (e) { /* fresh start */ }
@@ -122,9 +124,11 @@
       if (!TriagePilot.isAwake(e)) snoozed++;
     });
     var total = state.emails.length;
+    var sent = TriagePilot.sentCount(state.emails);
     $('digest').innerHTML =
       '<strong>' + total + '</strong> emails triaged' +
       (total ? ' &nbsp;·&nbsp; <em>' + open + ' open</em>' : '') +
+      (sent ? ' &nbsp;·&nbsp; <em>' + sent + ' ' + (sent === 1 ? 'reply' : 'replies') + ' sent</em>' : '') +
       (snoozed ? ' &nbsp;·&nbsp; <em>' + snoozed + ' snoozed</em>' : '') +
       (total ? ' &nbsp;<button id="copyDigest" class="btn-ghost tiny" title="Copy summary">Copy summary</button>' : '');
     var cp = $('copyDigest');
@@ -212,6 +216,7 @@
         '<span class="conf">' + escapeHtml(e.confidence) + '</span>' +
         (agingEmail(e) ? '<span class="aging">aging</span>' : '') +
         (sz ? '<span class="snooze-tag">snoozed ' + escapeHtml(sz) + '</span>' : '') +
+        (e.sentAt ? '<span class="replied-tag">replied</span>' : '') +
         (e.handled ? '<span class="done-tag">handled</span>' : '') + '</div>' +
         '<div class="email-subj">' + escapeHtml(e.subject) + '</div>' +
         '<div class="email-from">' + escapeHtml(e.from) + '</div></div>';
@@ -255,6 +260,7 @@
       '<span class="conf">' + escapeHtml(e.confidence) + ' confidence</span></div>' +
       '<div class="meter"><i style="width:' + meterPct + '%"></i></div>' +
       '<p class="reason"><strong>Why:</strong> ' + escapeHtml(e.reason) + '</p>' +
+      (e.sentAt ? '<p class="sent-line">Reply sent — resolved ' + escapeHtml(new Date(e.sentAt).toLocaleString()) + '.</p>' : '') +
       '</div>' +
       '<p class="body">' + escapeHtml(e.body) + '</p>' +
       '<div class="draft-actions">' +
@@ -285,7 +291,9 @@
         : '<button id="trustSender" class="action small">Trust</button>') +
       '</div>' +
       '<textarea id="draft" rows="10" placeholder="Your draft will appear here — edit it freely."></textarea>' +
-      '<button id="copyBtn" class="action">Copy draft</button> <span id="copied"></span>';
+      '<button id="copyBtn" class="action">Copy draft</button> ' +
+      '<button id="sentBtn" class="action"' + (e.sentAt ? ' disabled title="Already marked sent"' : '') + '>Reply sent</button> ' +
+      '<span id="copied"></span>';
     $('tone').addEventListener('change', function (ev) { state.tone = ev.target.value; saveState(); });
     $('draftBtn').addEventListener('click', function () {
       $('draft').value = TriagePilot.draftReply(e, state.tone, state.business);
@@ -307,14 +315,19 @@
       $('copied').textContent = 'Copied!';
       setTimeout(function () { $('copied').textContent = ''; }, 1500);
     });
+    $('sentBtn').addEventListener('click', function () {
+      // Sent-tracking: closes the loop — the email is resolved and counted
+      // in the digest, and the snooze loop never has to resurface it.
+      state.emails = TriagePilot.markSent(state.emails, e.id);
+      saveState();
+      renderDigest();
+      renderList();
+      selectEmail(e.id);
+      var c = $('copied');
+      if (c) { c.textContent = 'Reply marked sent — email resolved.'; }
+    });
     $('fixLabel').addEventListener('click', function () {
-      e.category = TriagePilot.nextCategory(e.category);
-      e.label = TriagePilot.LABELS[e.category];
-      // Teach the classifier from this correction so future emails improve.
-      var learned = TriagePilot.learnCorrection(e.category, e.subject, e.body);
-      e.reason = 'Manually corrected by you to ' + e.label + '.' +
-        (learned.length ? ' Learned ' + learned.length + ' keyword' + (learned.length === 1 ? '' : 's') + ' for ' + e.label + '.' : '');
-      e.confidence = 'high';
+      teachCorrection(e, TriagePilot.nextCategory(e.category));
       saveState();
       renderDigest();
       renderList();
@@ -431,6 +444,25 @@
       });
   }
 
+  /**
+   * Teach the triager from a manual correction. Two kinds of learning:
+   *  1. distinctive keywords for the category (learnCorrection), and
+   *  2. per-sender memory — future mail from this sender files the same way.
+   * Returns the learned keywords (for the "Learned N keywords" copy).
+   */
+  function teachCorrection(email, category) {
+    email.category = category;
+    email.label = TriagePilot.LABELS[category];
+    var learned = TriagePilot.learnCorrection(category, email.subject, email.body);
+    TriagePilot.rememberSender(category, email.from);
+    var bits = ['Manually corrected by you to ' + email.label + '.'];
+    if (learned.length) bits.push('Learned ' + learned.length + ' keyword' + (learned.length === 1 ? '' : 's') + ' for ' + email.label + '.');
+    bits.push('Sender remembered — future mail from them files as ' + email.label + '.');
+    email.reason = bits.join(' ');
+    email.confidence = 'high';
+    return learned;
+  }
+
   function toggleHandled(id) {
     var e = state.emails.filter(function (x) { return x.id === id; })[0];
     if (!e) return;
@@ -472,18 +504,24 @@
     });
   }
 
-  function renderLearnNote() {    var el = document.getElementById('learnNote');
+  function renderLearnNote() {
+    var el = document.getElementById('learnNote');
     if (!el) return;
     var n = learnedCount();
-    el.innerHTML = n
-      ? '<span class="muted">Classifier learned ' + n + ' keyword' + (n === 1 ? '' : 's') + ' from your corrections.</span> ' +
+    var memN = Object.keys(TriagePilot.getSenderMemory()).length;
+    var bits = [];
+    if (n) bits.push('learned ' + n + ' keyword' + (n === 1 ? '' : 's'));
+    if (memN) bits.push('remembers ' + memN + ' sender' + (memN === 1 ? '' : 's'));
+    el.innerHTML = bits.length
+      ? '<span class="muted">Classifier ' + bits.join(' and ') + ' from your corrections.</span> ' +
         '<button id="resetLearn" class="btn-ghost tiny">Reset learned rules</button>'
       : '<span class="muted">Tip: press <span class="kbd">?</span> for keyboard shortcuts. Correcting a label teaches the classifier.</span> ' +
         '<button id="showKeys" class="btn-ghost tiny">Shortcuts</button>';
     var rb = document.getElementById('resetLearn');
     if (rb) rb.addEventListener('click', function () {
-      if (!confirm('Forget all learned keywords? Built-in rules stay.')) return;
+      if (!confirm('Forget all learned keywords and per-sender memory? Built-in rules and sender lists stay.')) return;
       TriagePilot.resetLearnedRules();
+      TriagePilot.resetSenderMemory();
       saveState();
       renderLearnNote();
     });
@@ -510,12 +548,7 @@
   function shortcutRecategorize(cat) {
     var e = state.emails.filter(function (x) { return x.id === state.selectedId; })[0];
     if (!e) return;
-    e.category = cat;
-    e.label = TriagePilot.LABELS[cat];
-    var learned = TriagePilot.learnCorrection(cat, e.subject, e.body);
-    e.reason = 'Manually corrected by you to ' + e.label + '.' +
-      (learned.length ? ' Learned ' + learned.length + ' keyword' + (learned.length === 1 ? '' : 's') + '.' : '');
-    e.confidence = 'high';
+    teachCorrection(e, cat);
     saveState();
     renderDigest();
     renderList();
@@ -568,6 +601,7 @@
     { name: 'Delete email', hint: 'd', run: function () { clickBtn('delEmail'); } },
     { name: 'Clear spam', hint: '', run: function () { clearSpam(); } },
     { name: 'Load sample inbox', hint: '', run: function () { loadSamples(); } },
+    { name: 'Sync Gmail inbox', hint: 'gmail', run: function () { if (gmailToken) gmailSync(); } },
     { name: 'Toggle keyboard shortcuts', hint: '?', run: function () { toggleKeyHelp(); } }
   ];
 
@@ -667,6 +701,99 @@
     });
   }
 
+  /* ---------- Gmail connection (OAuth 2.0, read-only; expansion) ----------
+   * The access token lives in this variable only — never localStorage,
+   * never sent anywhere except googleapis.com. The client ID comes from
+   * the user's local config/gmail.local.js (gitignored), never hardcoded.
+   */
+  var gmailToken = null;
+  var gmailSyncing = false;
+
+  function gmailConfigured() {
+    return typeof TriagePilotGmail !== 'undefined' && TriagePilotGmail.isConfigured();
+  }
+
+  function gmailStatus(msg, isError) {
+    var el = $('gmailStatus');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.toggle('error', !!isError);
+  }
+
+  function renderGmailBox() {
+    var show = function (id, on) { var el = $(id); if (el) el.classList.toggle('hidden', !on); };
+    if (!gmailConfigured()) {
+      show('gmailSetup', true);
+      show('gmailConnectWrap', false);
+      show('gmailSyncWrap', false);
+      return;
+    }
+    show('gmailSetup', false);
+    show('gmailConnectWrap', !gmailToken);
+    show('gmailSyncWrap', !!gmailToken);
+  }
+
+  function gmailSync() {
+    if (!gmailToken || gmailSyncing) return;
+    gmailSyncing = true;
+    var btn = $('gmailSync');
+    if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
+    gmailStatus('Reading your recent inbox…');
+    TriagePilotGmail.syncInbox(gmailToken, { maxResults: 25 })
+      .then(function (incoming) {
+        var fresh = TriagePilotGmail.dedupByGmailId(state.emails, incoming);
+        fresh.forEach(function (e) { triage(e); state.emails.unshift(e); });
+        gmailStatus(fresh.length
+          ? 'Synced ' + fresh.length + ' new email' + (fresh.length === 1 ? '' : 's') + ' — triaged.'
+          : 'Inbox up to date — no new emails.', false);
+        saveState();
+        renderDigest();
+        renderList();
+        if (state.emails.length) selectEmail(state.emails[0].id);
+      })
+      .catch(function (err) {
+        var msg = (err && err.message) || 'Sync failed.';
+        if (err && err.status === 401) {
+          msg = 'Token expired — click Disconnect, then Connect Gmail again.';
+        }
+        gmailStatus(msg, true);
+      })
+      .then(function () {
+        gmailSyncing = false;
+        if (btn) { btn.disabled = false; btn.textContent = 'Sync inbox'; }
+      });
+  }
+
+  function initGmail() {
+    if (typeof TriagePilotGmail === 'undefined') return; // gmail.js missing — optional module
+    renderGmailBox();
+    var connect = $('gmailConnect');
+    if (connect) connect.addEventListener('click', function () {
+      gmailStatus('');
+      TriagePilotGmail.requestAccessToken(
+        function (token) {
+          gmailToken = token;
+          renderGmailBox();
+          gmailStatus('Connected. Click "Sync inbox" to pull your recent mail.', false);
+        },
+        function (err) { gmailStatus((err && err.message) || 'Connection failed.', true); }
+      );
+    });
+    var sync = $('gmailSync');
+    if (sync) sync.addEventListener('click', gmailSync);
+    var disc = $('gmailDisconnect');
+    if (disc) disc.addEventListener('click', function () {
+      var token = gmailToken;
+      gmailToken = null;
+      renderGmailBox();
+      if (token) {
+        TriagePilotGmail.revokeToken(token).then(function () {
+          gmailStatus('Disconnected — token forgotten and revoked with Google.', false);
+        });
+      }
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     $('loadSamples').addEventListener('click', loadSamples);
     $('searchBox').addEventListener('input', function (ev) {
@@ -693,6 +820,7 @@
     });
     initShortcuts();
     initCmdk();
+    initGmail();
     renderLearnNote();
     renderSenderNote();
     var restored = loadState();
